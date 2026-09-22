@@ -1,0 +1,18 @@
+[package]
+name = "audio-norm"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anlg-afconvert = { workspace = true }
+anlg-audio-utils = { workspace = true }
+anlg-mp3 = { workspace = true }
+anlg-resampler = { workspace = true }
+audioadapter-buffers = "2.0"
+
+rodio = { workspace = true, features = ["symphonia-all"] }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+anlg-fixtures = { workspace = true }
+assert_fs = "1"

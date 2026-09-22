@@ -1,0 +1,36 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Mitschnitt Staging",
+  "mainBinaryName": "mitschnitt-staging",
+  "identifier": "media.zickert.mitschnitt.staging",
+  "plugins": {
+    "deep-link": {
+      "desktop": {
+        "schemes": [
+          "mitschnitt"
+        ]
+      }
+    },
+    "updater": {
+      "active": false
+    }
+  },
+  "bundle": {
+    "icon": [
+      "icons/staging/32x32.png",
+      "icons/staging/128x128.png",
+      "icons/staging/128x128@2x.png",
+      "icons/staging/icon.icns",
+      "icons/staging/icon.ico"
+    ],
+    "macOS": {
+      "files": {
+        "Resources/mlx-swift_Cmlx.bundle/default.metallib": "resources/mlx.metallib",
+        "Resources/AppIcon.icns": "icons/staging/icon.icns"
+      },
+      "dmg": {
+        "background": "assets/dmg-background-staging.png"
+      }
+    }
+  }
+}

@@ -1,0 +1,249 @@
+import { describe, expect, it, vi } from "vitest";
+
+import {
+  createDevtoolsToastPreview,
+  createToastRegistry,
+  getToastToShow,
+} from "./registry";
+
+const baseParams = {
+  hasLLMConfigured: true,
+  hasSttConfigured: true,
+  isAiTranscriptionTabActive: false,
+  isAiIntelligenceTabActive: false,
+  isBatchTranscribingInActiveTranscriptTab: false,
+  isLiveMeetingActive: false,
+  hasActiveDownload: false,
+  downloadingModel: null,
+  activeDownloads: [],
+  localSttStatus: null,
+  isLocalSttModel: false,
+  update: {
+    status: null,
+    version: null,
+    progress: null,
+    errorMessage: null,
+    downloadStarting: false,
+    installing: false,
+    downloadUpdate: vi.fn(),
+    installUpdate: vi.fn(),
+  },
+  onOpenLLMSettings: vi.fn(),
+  onOpenSTTSettings: vi.fn(),
+};
+
+describe("sidebar toast registry", () => {
+  it("keeps the missing language model message short", () => {
+    const toast = getToastToShow(
+      createToastRegistry({
+        ...baseParams,
+        hasLLMConfigured: false,
+      }),
+      () => false,
+    );
+
+    expect(toast?.id).toBe("missing-llm");
+    expect(toast?.description).toBe("Language model needed");
+    expect(toast?.primaryAction?.label).toBe("Add");
+    expect(toast?.lifecycle).toEqual({ type: "condition-bound" });
+  });
+
+  it("shows required setup even if it was dismissed previously", () => {
+    const toast = getToastToShow(
+      createToastRegistry({
+        ...baseParams,
+        hasLLMConfigured: false,
+      }),
+      (toast) => toast.id === "missing-llm",
+    );
+
+    expect(toast?.id).toBe("missing-llm");
+  });
+
+  it("keeps the missing transcription provider message short", () => {
+    const toast = getToastToShow(
+      createToastRegistry({
+        ...baseParams,
+        hasSttConfigured: false,
+      }),
+      () => false,
+    );
+
+    expect(toast?.id).toBe("missing-stt");
+    expect(toast?.description).toBe("Transcription provider needed");
+    expect(toast?.primaryAction?.label).toBe("Add");
+    expect(toast?.lifecycle).toEqual({ type: "condition-bound" });
+  });
+
+  it("hides local STT loading while the active transcript tab shows batch progress", () => {
+    const toast = getToastToShow(
+      createToastRegistry({
+        ...baseParams,
+        localSttStatus: "loading",
+        isLocalSttModel: true,
+        isBatchTranscribingInActiveTranscriptTab: true,
+      }),
+      () => false,
+    );
+
+    expect(toast).toBeNull();
+  });
+
+  it("shows local STT loading outside active transcript batch progress", () => {
+    const toast = getToastToShow(
+      createToastRegistry({
+        ...baseParams,
+        localSttStatus: "loading",
+        isLocalSttModel: true,
+      }),
+      () => false,
+    );
+
+    expect(toast?.id).toBe("local-stt-loading");
+    expect(toast?.description).toBe("Starting transcription...");
+  });
+
+  it("offers an available desktop update with a one-day snooze", () => {
+    const downloadUpdate = vi.fn();
+    const toast = getToastToShow(
+      createToastRegistry({
+        ...baseParams,
+        update: {
+          ...baseParams.update,
+          status: "available",
+          version: "1.0.34",
+          downloadUpdate,
+        },
+      }),
+      () => false,
+    );
+
+    expect(toast).toMatchObject({
+      id: "desktop-update:1.0.34:available",
+      description: "Mitschnitt 1.0.34 is available",
+      lifecycle: { type: "persistent", dismissal: "day" },
+      primaryAction: { label: "Download" },
+    });
+
+    toast?.primaryAction?.onClick();
+    expect(downloadUpdate).toHaveBeenCalledOnce();
+  });
+
+  it("hides the desktop update toast while a meeting is recording", () => {
+    const toast = getToastToShow(
+      createToastRegistry({
+        ...baseParams,
+        isLiveMeetingActive: true,
+        update: {
+          ...baseParams.update,
+          status: "available",
+          version: "1.0.34",
+        },
+      }),
+      () => false,
+    );
+
+    expect(toast).toBeNull();
+  });
+
+  it("lets users dismiss a model download toast for the current download", () => {
+    const toast = getToastToShow(
+      createToastRegistry({
+        ...baseParams,
+        hasActiveDownload: true,
+        downloadingModel: "apple-speech",
+        activeDownloads: [
+          { model: "apple-speech", displayName: "apple-speech", progress: 0 },
+        ],
+      }),
+      () => false,
+    );
+
+    expect(toast).toMatchObject({
+      id: "downloading-model",
+      description: "Downloading apple-speech",
+      lifecycle: { type: "persistent", dismissal: "session" },
+      loading: true,
+    });
+  });
+
+  it("keeps desktop update progress in the toast", () => {
+    const toast = getToastToShow(
+      createToastRegistry({
+        ...baseParams,
+        update: {
+          ...baseParams.update,
+          status: "downloading",
+          version: "1.0.34",
+          progress: 0.58,
+        },
+      }),
+      () => false,
+    );
+
+    expect(toast).toMatchObject({
+      id: "desktop-update:1.0.34:downloading",
+      description: "Downloading Mitschnitt 1.0.34 (58%)",
+      lifecycle: { type: "persistent", dismissal: "session" },
+      loading: true,
+    });
+    expect(toast?.primaryAction).toBeUndefined();
+  });
+
+  it("offers a ready desktop update without a spinner", () => {
+    const toast = getToastToShow(
+      createToastRegistry({
+        ...baseParams,
+        update: {
+          ...baseParams.update,
+          status: "ready",
+          version: "1.0.34",
+        },
+      }),
+      () => false,
+    );
+
+    expect(toast).toMatchObject({
+      id: "desktop-update:1.0.34:ready",
+      description: "Mitschnitt 1.0.34 is ready to install",
+      lifecycle: { type: "persistent", dismissal: "session" },
+      primaryAction: { label: "Restart" },
+    });
+    expect(toast?.loading).toBeUndefined();
+  });
+
+  it("creates devtools previews with app toast content", () => {
+    const languageModelToast = createDevtoolsToastPreview({
+      preview: "language-model",
+      onOpenLLMSettings: vi.fn(),
+      onOpenSTTSettings: vi.fn(),
+    });
+    const downloadToast = createDevtoolsToastPreview({
+      preview: "download",
+      onOpenLLMSettings: vi.fn(),
+      onOpenSTTSettings: vi.fn(),
+    });
+
+    expect(languageModelToast.id).toBe("devtools-missing-llm");
+    expect(languageModelToast.description).toBe("Language model needed");
+    expect(languageModelToast.primaryAction?.label).toBe("Add");
+    expect(languageModelToast.lifecycle).toEqual({ type: "condition-bound" });
+    const transcriptionModelToast = createDevtoolsToastPreview({
+      preview: "transcription-model",
+      onOpenLLMSettings: vi.fn(),
+      onOpenSTTSettings: vi.fn(),
+    });
+    expect(transcriptionModelToast.description).toBe(
+      "Transcription provider needed",
+    );
+    expect(transcriptionModelToast.lifecycle).toEqual({
+      type: "condition-bound",
+    });
+    expect(downloadToast.id).toBe("devtools-downloading-model");
+    expect(downloadToast.loading).toBe(true);
+    expect(downloadToast.lifecycle).toEqual({
+      type: "persistent",
+      dismissal: "session",
+    });
+  });
+});

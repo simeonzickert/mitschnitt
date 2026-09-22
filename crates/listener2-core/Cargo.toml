@@ -1,0 +1,52 @@
+[package]
+name = "listener2-core"
+version = "0.1.0"
+edition = "2024"
+
+[features]
+default = []
+specta = ["dep:specta"]
+tauri-event = ["specta", "dep:tauri-specta"]
+
+[dependencies]
+anlg-audio-chunking = { workspace = true }
+anlg-audio-utils = { workspace = true }
+anlg-denoise = { workspace = true, features = ["onnx"] }
+anlg-host = { workspace = true }
+anlg-language = { workspace = true }
+anlg-mp3 = { workspace = true }
+anlg-transcribe-core = { workspace = true }
+anlg-transcribe-soniqo = { workspace = true }
+anlg-transcribe-speechanalyzer = { workspace = true }
+anlg-vocabulary = { workspace = true }
+
+bytes = { workspace = true }
+hound = { workspace = true }
+
+owhisper-client = { workspace = true, features = ["local"] }
+owhisper-interface = { workspace = true }
+
+serde = { workspace = true }
+serde_json = { workspace = true }
+specta = { workspace = true, optional = true }
+strum = { workspace = true, features = ["derive"] }
+tauri-specta = { workspace = true, optional = true, features = ["derive"] }
+tempfile = { workspace = true }
+thiserror = { workspace = true }
+
+ractor = { workspace = true, features = ["async-trait"] }
+
+async-stream = { workspace = true }
+futures-util = { workspace = true }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time"] }
+tokio-stream = { workspace = true }
+tracing = { workspace = true }
+
+aspasia = "0.2.1"
+
+[dev-dependencies]
+axum = { workspace = true }
+reqwest-middleware = { workspace = true }
+rodio = { workspace = true }
+tokio = { workspace = true, features = ["net", "time"] }
+tracing-subscriber = { workspace = true, features = ["env-filter", "json"] }

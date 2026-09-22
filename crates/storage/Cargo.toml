@@ -1,0 +1,24 @@
+[package]
+name = "storage"
+version = "0.1.0"
+edition = "2024"
+
+[features]
+default = []
+specta = ["dep:specta"]
+
+[dependencies]
+dirs = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+shellexpand = { workspace = true }
+specta = { workspace = true, optional = true }
+tempfile = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["fs"] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows = { workspace = true, features = ["Win32_Foundation", "Win32_Security_Cryptography"] }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt"] }

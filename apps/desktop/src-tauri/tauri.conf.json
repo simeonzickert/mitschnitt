@@ -1,0 +1,114 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Mitschnitt",
+  "mainBinaryName": "mitschnitt",
+  "identifier": "media.zickert.mitschnitt",
+  "build": {
+    "features": ["direct-distribution"],
+    "beforeDevCommand": "pnpm -F desktop dev",
+    "devUrl": "http://localhost:1422",
+    "beforeBuildCommand": "pnpm -F desktop build",
+    "beforeBundleCommand": "node ./src-tauri/scripts/before-bundle.mjs",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "macOSPrivateApi": false,
+    "security": {
+      "assetProtocol": {
+        "enable": true,
+        "scope": [
+          "**/*",
+          "$APPDATA/**"
+        ]
+      }
+    }
+  },
+  "bundle": {
+    "publisher": "Zickert Media",
+    "copyright": "© 2026 Simeon Zickert · Fork von anarlog (Fastrepl, Inc., MIT)",
+    "active": true,
+    "createUpdaterArtifacts": true,
+    "targets": "all",
+    "linux": {
+      "deb": {
+        "depends": [
+          "libwebkit2gtk-4.1-0",
+          "libgtk-3-0",
+          "libpipewire-0.3-0",
+          "libpulse0",
+          "libasound2",
+          "libssl3",
+          "libstdc++6",
+          "ca-certificates",
+          "desktop-file-utils",
+          "xdg-utils",
+          "libayatana-appindicator3-1"
+        ]
+      }
+    },
+    "externalBin": [],
+    "icon": [
+      "icons/dev/32x32.png",
+      "icons/dev/128x128.png",
+      "icons/dev/128x128@2x.png",
+      "icons/dev/icon.icns",
+      "icons/dev/icon.ico"
+    ],
+    "resources": {
+      "../../../plugins/windows/swift-lib/src/Resources/CabinSketch-Regular.ttf": "CabinSketch-Regular.ttf",
+      "../../../plugins/windows/swift-lib/src/Resources/OFL.txt": "CabinSketch-OFL.txt",
+      "../../../LICENSE": "licenses/LICENSE-anarlog-MIT.txt",
+      "../../../ATTRIBUTIONS.md": "licenses/ATTRIBUTIONS.md",
+      "../../../crates/export-core/fonts/Pretendard-OFL.txt": "licenses/Pretendard-OFL.txt",
+      "../../../licenses/LICENSE-LGPL-2.0.txt": "licenses/LICENSE-LGPL-2.0.txt",
+      "../../../licenses/LICENSE-LGPL-3.0.txt": "licenses/LICENSE-LGPL-3.0.txt",
+      "../../../licenses/LICENSE-GPL-3.0.txt": "licenses/LICENSE-GPL-3.0.txt",
+      "../../../licenses/LIESMICH-libmp3lame.md": "licenses/LIESMICH-libmp3lame.md",
+      "icons/stable/icon.icns": "icons/stable.icns",
+      "icons/dev/icon.icns": "icons/dev.icns",
+      "icons/staging/icon.icns": "icons/staging.icns",
+      "resources/notification-icons": "notification-icons",
+      "resources/cli": "cli"
+    },
+    "macOS": {
+      "minimumSystemVersion": "15.0",
+      "entitlements": "./Entitlements.plist",
+      "dmg": {
+        "background": "assets/dmg-background-stable.png",
+        "windowSize": {
+          "width": 660,
+          "height": 430
+        },
+        "appPosition": {
+          "x": 177,
+          "y": 200
+        },
+        "applicationFolderPosition": {
+          "x": 483,
+          "y": 200
+        }
+      },
+      "files": {
+        "Resources/mlx-swift_Cmlx.bundle/default.metallib": "resources/mlx.metallib",
+        "Resources/AppIcon.icns": "icons/dev/icon.icns",
+        "Frameworks/libmp3lame.0.dylib": "../../../vendor/lame-dylib/libmp3lame.0.dylib"
+      }
+    }
+  },
+  "plugins": {
+    "deep-link": {
+      "desktop": {
+        "schemes": [
+          "mitschnitt"
+        ]
+      }
+    },
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDEyN0U4MUNGOEE2RjQ2RUIKUldUclJtK0t6NEYrRWxIVzRuMmtxbVRDNmwxU1V6TFNIb1A1VVBaTDdYNnkxd3Y0MlAycldwS1IK",
+      "endpoints": [
+        "https://github.com/simeonzickert/mitschnitt/releases/latest/download/latest.json"
+      ]
+    }
+  }
+}

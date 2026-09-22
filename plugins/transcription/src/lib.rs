@@ -1,0 +1,186 @@
+use std::sync::Arc;
+use std::{collections::HashMap, sync::Mutex as StdMutex};
+
+use ractor::Actor;
+use tauri::Manager;
+use tokio::sync::Mutex;
+use tokio::task::AbortHandle;
+use tokio_util::sync::CancellationToken;
+
+mod api;
+mod error;
+mod listener;
+mod listener2;
+mod voiceprint;
+
+pub use anlg_transcription_core::listener::{
+    DegradedError, ListenerRuntime, LiveTranscriptDelta, LiveTranscriptEngine,
+    LiveTranscriptSegment, LiveTranscriptSegmentDelta, LiveTranscriptUpdate,
+};
+pub use anlg_transcription_core::listener2::{
+    DenoiseEvent, DenoiseParams, DenoiseRuntime, Error as Listener2Error,
+    Result as Listener2Result, Subtitle, Token, VttWord, export_words_to_vtt_file,
+    is_supported_languages_batch, list_documented_language_codes_batch, parse_subtitle_from_path,
+    run_denoise, suggest_providers_for_languages_batch,
+};
+pub use api::*;
+pub use error::{Error, Result};
+pub use listener::{Listener, ListenerPluginExt, held_session_ids};
+pub use listener2::{Listener2, Listener2PluginExt};
+
+use anlg_audio::AudioProvider;
+use anlg_transcription_core::listener::actors::{RootActor, RootArgs};
+
+const PLUGIN_NAME: &str = "transcription";
+
+pub type SharedState = Arc<Mutex<PluginState>>;
+
+pub struct PluginState {
+    pub app: tauri::AppHandle,
+}
+
+#[derive(Default)]
+pub struct SessionStateSnapshot {
+    pub requested_live_transcription: bool,
+    pub live_transcription_active: bool,
+    pub live_segments: Vec<anlg_transcription_core::listener::LiveTranscriptSegment>,
+    /// `Some(true)` only if every capture stream of this recording ran with the mic isolated
+    /// (headphone output). One shared-speaker stretch pins it to `Some(false)`.
+    pub mic_isolated: Option<bool>,
+}
+
+pub type SessionStateCache = Arc<StdMutex<HashMap<String, SessionStateSnapshot>>>;
+
+/// Final mic isolation per session, kept after the session snapshot is dropped on stop so
+/// voiceprint extraction, which runs after the recording ends, can still read it.
+pub type MicIsolationCache = Arc<StdMutex<HashMap<String, bool>>>;
+
+pub struct BatchSessionRegistry {
+    pub sessions: StdMutex<HashMap<String, BatchSessionEntry>>,
+}
+
+pub struct BatchSessionEntry {
+    pub control: Arc<BatchSessionControl>,
+    pub abort_handle: Option<AbortHandle>,
+    pub wait_for_native_completion: bool,
+}
+
+pub struct BatchSessionControl {
+    pub cancellation_token: CancellationToken,
+    pub last_activity_tx: tokio::sync::watch::Sender<std::time::Instant>,
+    pub terminal_state: StdMutex<BatchTerminalState>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BatchTerminalState {
+    Running,
+    Stopped,
+    TimedOut,
+    Finished,
+}
+
+fn make_specta_builder<R: tauri::Runtime>() -> tauri_specta::Builder<R> {
+    tauri_specta::Builder::<R>::new()
+        .plugin_name(PLUGIN_NAME)
+        .commands(tauri_specta::collect_commands![
+            listener::commands::list_microphone_devices::<tauri::Wry>,
+            listener::commands::list_speaker_devices::<tauri::Wry>,
+            listener::commands::get_current_microphone_device::<tauri::Wry>,
+            listener::commands::get_mic_muted::<tauri::Wry>,
+            listener::commands::set_mic_muted::<tauri::Wry>,
+            listener::commands::start_capture::<tauri::Wry>,
+            listener::commands::stop_capture::<tauri::Wry>,
+            listener::commands::update_capture_config::<tauri::Wry>,
+            listener::commands::get_capture_state::<tauri::Wry>,
+            listener::commands::get_capture_snapshot::<tauri::Wry>,
+            listener::commands::is_supported_languages_live::<tauri::Wry>,
+            listener::commands::suggest_providers_for_languages_live::<tauri::Wry>,
+            listener::commands::list_documented_language_codes_live::<tauri::Wry>,
+            listener::commands::render_transcript_segments,
+            listener2::commands::start_transcription::<tauri::Wry>,
+            listener2::commands::stop_transcription::<tauri::Wry>,
+            listener2::commands::run_denoise::<tauri::Wry>,
+            listener2::commands::parse_subtitle::<tauri::Wry>,
+            listener2::commands::export_to_vtt::<tauri::Wry>,
+            listener2::commands::is_supported_languages_batch::<tauri::Wry>,
+            listener2::commands::suggest_providers_for_languages_batch::<tauri::Wry>,
+            listener2::commands::list_documented_language_codes_batch::<tauri::Wry>,
+            voiceprint::extract_voiceprint_candidates::<tauri::Wry>,
+            voiceprint::promote_voiceprint_candidates::<tauri::Wry>,
+            voiceprint::cleanup_expired_voiceprint_candidates::<tauri::Wry>,
+        ])
+        .events(tauri_specta::collect_events![
+            CaptureLifecycleEvent,
+            CaptureStatusEvent,
+            CaptureDataEvent,
+            TranscriptionEvent,
+            DenoiseEvent
+        ])
+        .error_handling(tauri_specta::ErrorHandlingMode::Result)
+}
+
+pub fn init() -> tauri::plugin::TauriPlugin<tauri::Wry> {
+    let specta_builder = make_specta_builder();
+
+    tauri::plugin::Builder::new(PLUGIN_NAME)
+        .invoke_handler(specta_builder.invoke_handler())
+        .setup(move |app, _api| {
+            specta_builder.mount_events(app);
+
+            let app_handle = app.app_handle().clone();
+            let state: SharedState = Arc::new(Mutex::new(PluginState {
+                app: app_handle.clone(),
+            }));
+            app.manage(state);
+            app.manage(Arc::new(BatchSessionRegistry {
+                sessions: StdMutex::new(HashMap::new()),
+            }));
+
+            let audio = app.state::<Arc<dyn AudioProvider>>().inner().clone();
+            let session_state_cache: SessionStateCache = Arc::new(StdMutex::new(HashMap::new()));
+            app.manage(session_state_cache.clone());
+            let mic_isolation_cache: MicIsolationCache = Arc::new(StdMutex::new(HashMap::new()));
+            app.manage(mic_isolation_cache.clone());
+            let runtime = Arc::new(listener::TauriRuntime {
+                app: app_handle.clone(),
+                session_state_cache,
+                mic_isolation_cache,
+            });
+
+            tauri::async_runtime::spawn(async move {
+                Actor::spawn(
+                    Some(RootActor::name()),
+                    RootActor,
+                    RootArgs { runtime, audio },
+                )
+                .await
+                .map(|_| tracing::info!("root_actor_spawned"))
+                .map_err(|e| tracing::error!(?e, "failed_to_spawn_root_actor"))
+            });
+
+            Ok(())
+        })
+        .build()
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn export_types() {
+        const OUTPUT_FILE: &str = "./js/bindings.gen.ts";
+
+        make_specta_builder::<tauri::Wry>()
+            .export(
+                specta_typescript::Typescript::default()
+                    .formatter(specta_typescript::formatter::prettier)
+                    .bigint(specta_typescript::BigIntExportBehavior::Number),
+                OUTPUT_FILE,
+            )
+            .unwrap();
+
+        let content = std::fs::read_to_string(OUTPUT_FILE).unwrap();
+        std::fs::write(OUTPUT_FILE, format!("// @ts-nocheck\n{content}")).unwrap();
+    }
+}

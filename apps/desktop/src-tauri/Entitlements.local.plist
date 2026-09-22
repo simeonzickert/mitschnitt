@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Fork: Berechtigungen fuer den LOKALEN Bau, signiert mit der eigenen Developer ID.
+
+  Warum eine eigene Datei statt Entitlements.plist: die traegt
+  com.apple.security.app-sandbox=true (App-Store-Pfad). Unter Sandbox kaeme die
+  App nicht an ihren eigenen Datenordner und nicht an die Aufnahme-Dateien.
+  Fuer einen lokal installierten Eigenbau ist das falsch.
+
+  Warum ueberhaupt signieren (gemessen 31.08.2026): der ad-hoc-signierte
+  tauri-Debug-Bau meldet "Identifier=desktop-<hash>", "Info.plist=not bound"
+  und "Signature=adhoc". macOS haengt erteilte Berechtigungen an die Signatur;
+  passt sie nicht zur Bundle-Kennung und ist die Info.plist nicht gebunden,
+  laeuft die Berechtigungs-Anfrage ins Leere. Der Knopf in den Einstellungen
+  tut dann sichtbar nichts. Genau das ist hier passiert.
+
+  device.audio-input traegt das Mikrofon. Der Systemton laeuft ueber
+  ScreenCaptureKit und braucht kein eigenes Entitlement, nur die
+  TCC-Zustimmung. Kein Hardened Runtime hier: das ist ein Debug-Bau, und
+  "options runtime" wuerde die unsignierten Fremd-Bibliotheken im Bundle
+  (whisper, mlx) zusaetzlich beanstanden.
+
+  Merker: XML-Kommentare vertragen keine doppelten Bindestriche. Ein
+  Gedankenstrich in diesem Block laesst codesign mit "AMFIUnserializeXML:
+  syntax error" abbrechen.
+-->
+<plist version="1.0">
+<dict>
+	<key>com.apple.security.device.audio-input</key>
+	<true/>
+	<key>com.apple.security.automation.apple-events</key>
+	<true/>
+</dict>
+</plist>

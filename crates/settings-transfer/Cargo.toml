@@ -1,0 +1,20 @@
+[package]
+name = "anlg-settings-transfer"
+version = "0.1.0"
+edition = "2024"
+
+# Mitschnitt-Fork (F14). Upstream has no settings export; this crate is additive
+# so an upstream release can be merged without touching it.
+
+[dependencies]
+argon2 = { version = "0.5", default-features = false, features = ["alloc"] }
+base64 = { workspace = true }
+chacha20poly1305 = "0.10"
+getrandom = "0.3"
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+zeroize = { version = "1.8", features = ["derive"] }
+
+[dev-dependencies]
+tempfile = { workspace = true }

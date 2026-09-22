@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Fork: Berechtigungen fuer den NOTARISIERTEN Bau (Weitergabe an andere Macs).
+
+  Gleiche Rechte wie Entitlements.local.plist (Mikrofon, Apple Events),
+  gedacht fuer codesign mit "options runtime" (Hardened Runtime), das die
+  Notarisierung verlangt. Bewusst ohne Ausnahmen wie
+  disable-library-validation oder allow-unsigned-executable-memory: erst
+  messen, ob die mitgelieferten Fremdbibliotheken (whisper, mlx) unter
+  Hardened Runtime laufen, wenn sie per "deep" mit derselben Team-ID signiert
+  sind. Eine Ausnahme kommt nur nach einem belegten Fehlschlag dazu, mit
+  Datum und Fehlermeldung in diesem Kommentar.
+
+  Merker: keine doppelten Bindestriche in XML-Kommentaren (AMFIUnserializeXML).
+-->
+<plist version="1.0">
+<dict>
+	<key>com.apple.security.device.audio-input</key>
+	<true/>
+	<key>com.apple.security.automation.apple-events</key>
+	<true/>
+	<!--
+	  disable-library-validation, Entscheid des Eigentuemers 22.09.2026 („ok"):
+	  libmp3lame (LGPL-3.0) liegt als austauschbare Dylib in Contents/Frameworks.
+	  Ohne diese Ausnahme laedt Hardened Runtime nur Bibliotheken mit der
+	  eigenen Team-ID, ein Empfaenger koennte die Bibliothek nie austauschen,
+	  und LGPL Abschnitt 4(d)(1) waere formal eingeraeumt, praktisch versperrt.
+	  Preis: wer Schreibzugriff auf das installierte Bundle hat, koennte eine
+	  fremde Bibliothek unterschieben. Gleiche Ausnahme wie bei Apps mit
+	  Plugin-System; Apple notarisiert sie.
+	-->
+	<key>com.apple.security.cs.disable-library-validation</key>
+	<true/>
+</dict>
+</plist>

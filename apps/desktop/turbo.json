@@ -1,0 +1,19 @@
+{
+  "$schema": "https://turbo.build/schema.json",
+  "extends": ["//"],
+  "tasks": {
+    "dev": {
+      "dependsOn": ["@anlg/ui#build"]
+    },
+    "build": {
+      "dependsOn": ["@anlg/ui#build"],
+      "outputs": ["dist/**"]
+    },
+    "tauri:dev": {
+      "dependsOn": ["@anlg/ui#build"]
+    },
+    "tauri:build": {
+      "dependsOn": ["@anlg/ui#build"]
+    }
+  }
+}

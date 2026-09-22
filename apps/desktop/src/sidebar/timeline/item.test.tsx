@@ -1,0 +1,885 @@
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
+import type { ReactNode } from "react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const mocks = vi.hoisted(() => ({
+  addDeletion: vi.fn(),
+  amplitude: { mic: 0.4, speaker: 0.3 },
+  ignoreEvent: vi.fn(),
+  invalidateResource: vi.fn(),
+  isIgnored: vi.fn(() => false),
+  openCurrent: vi.fn(),
+  openNew: vi.fn(),
+  platform: "macos",
+  preloadSession: vi.fn(() => Promise.resolve(null)),
+  sessionMode: "inactive",
+  stop: vi.fn(),
+  getOrCreateSessionForEventId: vi.fn(() => Promise.resolve("session-event")),
+  storeTitle: "Live Note",
+  nativeContextMenus: [] as Array<
+    Array<{
+      id?: string;
+      text?: string;
+      action?: () => void;
+      separator?: boolean;
+    }>
+  >,
+  timelineSelection: {
+    selectedIds: [] as string[],
+    setAnchor: vi.fn(),
+    selectRange: vi.fn(),
+    toggleSelect: vi.fn(),
+  },
+  windowShow: vi.fn(() => Promise.resolve({ status: "ok", data: null })),
+  authAvailable: false as boolean | null,
+  revealedNoteIds: {} as Record<string, true>,
+  deleteSession: vi.fn(),
+  liveStartup: { sessionId: null as string | null, loading: false },
+}));
+
+vi.mock("@tauri-apps/plugin-os", () => ({
+  platform: () => mocks.platform,
+}));
+
+vi.mock("@anlg/plugin-fs-sync", () => ({
+  commands: {
+    sessionDir: vi.fn(() => Promise.resolve({ status: "ok", data: "" })),
+  },
+}));
+
+vi.mock("@anlg/plugin-opener2", () => ({
+  commands: {
+    openPath: vi.fn(() => Promise.resolve()),
+  },
+}));
+
+vi.mock("@anlg/plugin-windows", () => ({
+  commands: {
+    windowShow: mocks.windowShow,
+  },
+}));
+
+vi.mock("@anlg/ui/components/ui/dancing-sticks", () => ({
+  DancingSticks: ({ amplitude }: { amplitude: number }) => (
+    <span data-amplitude={amplitude} data-testid="dancing-sticks" />
+  ),
+}));
+
+vi.mock("@anlg/ui/components/ui/spinner", () => ({
+  Spinner: () => <span data-testid="spinner" />,
+}));
+
+vi.mock("@anlg/ui/components/ui/tooltip", () => ({
+  Tooltip: ({ children }: { children: ReactNode }) => <>{children}</>,
+  TooltipContent: ({ children }: { children: ReactNode }) => <>{children}</>,
+  TooltipTrigger: ({ children }: { children: ReactNode }) => <>{children}</>,
+}));
+
+vi.mock("~/session/hooks/useDeleteSession", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("~/session/hooks/useDeleteSession")
+  >()),
+  useDeleteSession: () => mocks.deleteSession,
+}));
+
+vi.mock("~/session/hooks/useEnhancedNotes", () => ({
+  useIsSessionEnhancing: () => false,
+}));
+
+vi.mock("~/session/queries", () => ({
+  getOrCreateSessionForEventId: mocks.getOrCreateSessionForEventId,
+  preloadSession: mocks.preloadSession,
+}));
+
+vi.mock("~/lock/notes", () => ({
+  revealLockedNote: vi.fn(() => Promise.resolve(true)),
+  setSessionLocked: vi.fn(() => Promise.resolve(true)),
+}));
+
+vi.mock("~/lock/store", () => ({
+  useAppLock: (
+    selector: (state: {
+      available: boolean | null;
+      revealedNoteIds: Record<string, true>;
+    }) => unknown,
+  ) =>
+    selector({
+      available: mocks.authAvailable,
+      revealedNoteIds: mocks.revealedNoteIds,
+    }),
+}));
+
+vi.mock("~/shared/hooks/useNativeContextMenu", () => ({
+  useNativeContextMenu: (
+    menu: Array<{
+      id?: string;
+      text?: string;
+      action?: () => void;
+      separator?: boolean;
+    }>,
+  ) => {
+    mocks.nativeContextMenus.push(menu);
+    return vi.fn();
+  },
+}));
+
+vi.mock("~/calendar/ignored-events", () => ({
+  useIgnoredEvents: () => ({
+    ignoreEvent: mocks.ignoreEvent,
+    ignoreSeries: vi.fn(),
+    isIgnored: mocks.isIgnored,
+    unignoreEvent: vi.fn(),
+    unignoreSeries: vi.fn(),
+  }),
+}));
+
+vi.mock("~/store/zustand/live-title", () => ({
+  useSessionTitle: () => mocks.storeTitle,
+}));
+
+vi.mock("~/store/zustand/tabs", () => ({
+  useTabs: (
+    selector: (state: {
+      invalidateResource: typeof mocks.invalidateResource;
+      openCurrent: typeof mocks.openCurrent;
+      openNew: typeof mocks.openNew;
+    }) => unknown,
+  ) =>
+    selector({
+      invalidateResource: mocks.invalidateResource,
+      openCurrent: mocks.openCurrent,
+      openNew: mocks.openNew,
+    }),
+}));
+
+vi.mock("~/store/zustand/timeline-selection", () => ({
+  useTimelineSelection: Object.assign(
+    (selector: (state: typeof mocks.timelineSelection) => unknown) =>
+      selector(mocks.timelineSelection),
+    {
+      getState: () => mocks.timelineSelection,
+    },
+  ),
+}));
+
+vi.mock("~/store/zustand/undo-delete", () => ({
+  useUndoDelete: (
+    selector: (state: { addDeletion: typeof mocks.addDeletion }) => unknown,
+  ) => selector({ addDeletion: mocks.addDeletion }),
+}));
+
+vi.mock("~/stt/contexts", () => ({
+  useListener: (
+    selector: (state: {
+      getSessionMode: (sessionId: string) => string;
+      live: {
+        amplitude: { mic: number; speaker: number };
+        sessionId: string | null;
+        loading: boolean;
+      };
+      stop: typeof mocks.stop;
+    }) => unknown,
+  ) =>
+    selector({
+      getSessionMode: () => mocks.sessionMode,
+      live: { amplitude: mocks.amplitude, ...mocks.liveStartup },
+      stop: mocks.stop,
+    }),
+}));
+
+import { TimelineItemComponent } from "./item";
+
+describe("TimelineItemComponent", () => {
+  beforeEach(() => {
+    cleanup();
+    mocks.amplitude = { mic: 0.4, speaker: 0.3 };
+    mocks.sessionMode = "inactive";
+    mocks.storeTitle = "Live Note";
+    mocks.stop.mockClear();
+    mocks.openCurrent.mockClear();
+    mocks.openNew.mockClear();
+    mocks.platform = "macos";
+    mocks.preloadSession.mockReset();
+    mocks.preloadSession.mockResolvedValue(null);
+    mocks.authAvailable = false;
+    mocks.revealedNoteIds = {};
+    mocks.windowShow.mockClear();
+    mocks.nativeContextMenus = [];
+    mocks.timelineSelection.selectedIds = [];
+    mocks.timelineSelection.setAnchor.mockClear();
+    mocks.timelineSelection.selectRange.mockClear();
+    mocks.timelineSelection.toggleSelect.mockClear();
+    mocks.deleteSession.mockClear();
+    mocks.liveStartup = { sessionId: null, loading: false };
+  });
+
+  it("marks the active session row red in the sidebar timeline", () => {
+    mocks.sessionMode = "active";
+
+    render(
+      <TimelineItemComponent
+        item={{
+          type: "session",
+          id: "session-live",
+          data: {
+            title: "Live Note",
+            created_at: "2024-01-15T10:30:00.000Z",
+          },
+        }}
+        precision="time"
+        selected
+        timezone="UTC"
+        multiSelected={false}
+        flatItemKeys={["session-session-live"]}
+      />,
+    );
+
+    const rowButton = screen.getByText("Live Note").closest("button");
+
+    expect(rowButton?.className).toContain("bg-destructive");
+    expect(rowButton?.className).toContain("text-destructive-foreground");
+    expect(rowButton?.className).not.toContain("bg-accent");
+    expect(screen.getByTestId("dancing-sticks").dataset.amplitude).toBe("0.5");
+
+    const stopButton = screen.getByRole("button", { name: "Stop listening" });
+    expect(stopButton.className).toContain("text-white/80");
+    expect(stopButton.className).toContain("hover:text-white");
+
+    fireEvent.click(stopButton);
+
+    expect(mocks.stop).toHaveBeenCalledOnce();
+    expect(mocks.openCurrent).not.toHaveBeenCalled();
+  });
+
+  it("exposes the selected session row for sidebar scroll anchoring", () => {
+    const selectedNodeRef = vi.fn();
+
+    render(
+      <TimelineItemComponent
+        item={{
+          type: "session",
+          id: "session-live",
+          data: {
+            title: "Live Note",
+            created_at: "2024-01-15T10:30:00.000Z",
+          },
+        }}
+        precision="time"
+        selected
+        selectedNodeRef={selectedNodeRef}
+        timezone="UTC"
+        multiSelected={false}
+        flatItemKeys={["session-session-live"]}
+      />,
+    );
+
+    const row = screen
+      .getByText("Live Note")
+      .closest("[data-sidebar-timeline-session-id]");
+
+    expect(row?.getAttribute("data-sidebar-timeline-session-id")).toBe(
+      "session-live",
+    );
+    expect(row?.className).toContain("[content-visibility:auto]");
+    expect(row?.className).toContain("[contain-intrinsic-size:auto_56px]");
+    expect(selectedNodeRef.mock.calls.some(([node]) => node === row)).toBe(
+      true,
+    );
+  });
+
+  it("highlights an upcoming meeting row", () => {
+    render(
+      <TimelineItemComponent
+        item={{
+          type: "event",
+          id: "event-standup",
+          data: {
+            title: "Team standup",
+            started_at: "2024-01-15T10:30:00.000Z",
+            ended_at: "2024-01-15T11:00:00.000Z",
+            tracking_id_event: "tracking-standup",
+            has_recurrence_rules: false,
+          },
+        }}
+        precision="time"
+        selected={false}
+        timezone="UTC"
+        multiSelected={false}
+        flatItemKeys={["event-event-standup"]}
+        isUpcoming
+        upcomingProgress={0.8}
+      />,
+    );
+
+    const rowButton = screen.getByText("Team standup").closest("button");
+    const gauge = document.querySelector(
+      "[data-sidebar-timeline-upcoming-gauge]",
+    );
+    const gaugeFill = document.querySelector<HTMLElement>(
+      "[data-sidebar-timeline-upcoming-gauge-fill]",
+    );
+
+    expect(rowButton?.className).toContain("bg-destructive/8");
+    expect(rowButton?.className).toContain("hover:bg-accent/50");
+    expect(rowButton?.className).not.toContain("hover:bg-destructive/12");
+    expect(rowButton?.className).toContain("pl-4");
+    expect(rowButton?.className).not.toContain("motion-safe:animate-pulse");
+    expect(rowButton?.className).not.toContain("shadow-[0_0_22px");
+    expect(rowButton?.className).not.toContain("ring-1");
+    expect(rowButton?.className).not.toContain("opacity-65");
+    expect(screen.queryByText("In 4 minutes")).toBeNull();
+    expect(gauge).not.toBeNull();
+    expect(gaugeFill?.style.height).toBe("80%");
+  });
+
+  it("renders a full gauge for an active upcoming meeting row", () => {
+    render(
+      <TimelineItemComponent
+        item={{
+          type: "event",
+          id: "event-standup",
+          data: {
+            title: "Team standup",
+            started_at: "2024-01-15T10:30:00.000Z",
+            ended_at: "2024-01-15T11:00:00.000Z",
+            tracking_id_event: "tracking-standup",
+            has_recurrence_rules: false,
+          },
+        }}
+        precision="time"
+        selected={false}
+        timezone="UTC"
+        multiSelected={false}
+        flatItemKeys={["event-event-standup"]}
+        isUpcoming
+        upcomingProgress={1}
+      />,
+    );
+
+    expect(
+      document.querySelector<HTMLElement>(
+        "[data-sidebar-timeline-upcoming-gauge-fill]",
+      )?.style.height,
+    ).toBe("100%");
+  });
+
+  it("does not render an upcoming gauge on non-upcoming rows", () => {
+    render(
+      <TimelineItemComponent
+        item={{
+          type: "event",
+          id: "event-standup",
+          data: {
+            title: "Team standup",
+            started_at: "2024-01-15T10:30:00.000Z",
+            ended_at: "2024-01-15T11:00:00.000Z",
+            tracking_id_event: "tracking-standup",
+            has_recurrence_rules: false,
+          },
+        }}
+        precision="time"
+        selected={false}
+        timezone="UTC"
+        multiSelected={false}
+        flatItemKeys={["event-event-standup"]}
+        upcomingProgress={0.8}
+      />,
+    );
+
+    expect(
+      document.querySelector("[data-sidebar-timeline-upcoming-gauge]"),
+    ).toBeNull();
+  });
+
+  it("exposes an arbitrary timeline row for visibility checks", () => {
+    const itemNodeRef = vi.fn();
+
+    render(
+      <TimelineItemComponent
+        item={{
+          type: "event",
+          id: "event-standup",
+          data: {
+            title: "Team standup",
+            started_at: "2024-01-15T10:30:00.000Z",
+            ended_at: "2024-01-15T11:00:00.000Z",
+            tracking_id_event: "tracking-standup",
+            has_recurrence_rules: false,
+          },
+        }}
+        precision="time"
+        selected={false}
+        timezone="UTC"
+        multiSelected={false}
+        flatItemKeys={["event-event-standup"]}
+        itemNodeRef={itemNodeRef}
+      />,
+    );
+
+    const row = screen
+      .getByText("Team standup")
+      .closest("button")?.parentElement;
+
+    expect(itemNodeRef.mock.calls.some(([node]) => node === row)).toBe(true);
+  });
+
+  it("does not offer a new-tab action for event rows", () => {
+    render(
+      <TimelineItemComponent
+        item={{
+          type: "event",
+          id: "event-standup",
+          data: {
+            title: "Team standup",
+            started_at: "2024-01-15T10:30:00.000Z",
+            ended_at: "2024-01-15T11:00:00.000Z",
+            tracking_id_event: "tracking-standup",
+            has_recurrence_rules: false,
+          },
+        }}
+        precision="time"
+        selected={false}
+        timezone="UTC"
+        multiSelected={false}
+        flatItemKeys={["event-event-standup"]}
+      />,
+    );
+
+    const menu = mocks.nativeContextMenus.find((items) =>
+      items.some((item) => item.id === "ignore"),
+    );
+
+    expect(menu?.map((item) => item.id).filter(Boolean)).toEqual(["ignore"]);
+    expect(menu?.find((item) => item.id === "ignore")).toMatchObject({
+      id: "ignore",
+      text: "Delete Event",
+    });
+  });
+
+  it.each(["windows", "linux"])(
+    "uses platform-neutral folder copy on %s",
+    (currentPlatform) => {
+      mocks.platform = currentPlatform;
+
+      render(
+        <TimelineItemComponent
+          item={{
+            type: "session",
+            id: "session-note",
+            data: {
+              title: "Window Note",
+              created_at: "2024-01-15T10:30:00.000Z",
+            },
+          }}
+          precision="time"
+          selected={false}
+          timezone="UTC"
+          multiSelected={false}
+          flatItemKeys={["session-session-note"]}
+        />,
+      );
+
+      const menu = mocks.nativeContextMenus.find((items) =>
+        items.some((item) => item.id === "show"),
+      );
+
+      expect(menu?.find((item) => item.id === "show")?.text).toBe(
+        "Show in folder",
+      );
+    },
+  );
+
+  it("renders finalizing session spinner at the end of the row", () => {
+    mocks.sessionMode = "finalizing";
+    mocks.storeTitle = "Finalizing Note";
+
+    render(
+      <TimelineItemComponent
+        item={{
+          type: "session",
+          id: "session-finalizing",
+          data: {
+            title: "Finalizing Note",
+            created_at: "2024-01-15T10:30:00.000Z",
+          },
+        }}
+        precision="time"
+        selected={false}
+        timezone="UTC"
+        multiSelected={false}
+        flatItemKeys={["session-session-finalizing"]}
+      />,
+    );
+
+    const rowButton = screen.getByText("Finalizing Note").closest("button");
+    const spinnerSlot = screen.getByTestId("spinner").parentElement;
+
+    expect(rowButton?.className).toContain("pr-10");
+    expect(spinnerSlot?.className).toContain("absolute");
+    expect(spinnerSlot?.className).toContain("right-3");
+  });
+
+  it("preloads a session before opening it in the current tab", async () => {
+    render(
+      <TimelineItemComponent
+        item={{
+          type: "session",
+          id: "session-note",
+          data: {
+            title: "Window Note",
+            created_at: "2024-01-15T10:30:00.000Z",
+          },
+        }}
+        precision="time"
+        selected={false}
+        timezone="UTC"
+        multiSelected={false}
+        flatItemKeys={["session-session-note"]}
+      />,
+    );
+
+    const rowButton = screen.getByText("Live Note").closest("button");
+    fireEvent.pointerDown(rowButton!);
+    fireEvent.click(rowButton!, { detail: 1 });
+
+    expect(mocks.timelineSelection.setAnchor).toHaveBeenCalledWith(
+      "session-session-note",
+    );
+    expect(mocks.preloadSession).toHaveBeenCalledWith("session-note");
+    await waitFor(() => {
+      expect(mocks.openCurrent).toHaveBeenCalledWith({
+        id: "session-note",
+        type: "sessions",
+      });
+    });
+  });
+
+  it("keeps the current note open until the target session is preloaded", async () => {
+    let finishPreload: ((value: null) => void) | undefined;
+    mocks.preloadSession.mockReturnValue(
+      new Promise((resolve) => {
+        finishPreload = resolve;
+      }),
+    );
+
+    render(
+      <TimelineItemComponent
+        item={{
+          type: "session",
+          id: "slow-session",
+          data: {
+            title: "Slow note",
+            created_at: "2024-01-15T10:30:00.000Z",
+          },
+        }}
+        precision="time"
+        selected={false}
+        timezone="UTC"
+        multiSelected={false}
+        flatItemKeys={["session-slow-session"]}
+      />,
+    );
+
+    fireEvent.click(screen.getByText("Live Note").closest("button")!);
+
+    expect(mocks.openCurrent).not.toHaveBeenCalled();
+    expect(screen.getByTestId("spinner")).toBeTruthy();
+
+    finishPreload?.(null);
+    await waitFor(() => {
+      expect(mocks.openCurrent).toHaveBeenCalledWith({
+        id: "slow-session",
+        type: "sessions",
+      });
+    });
+  });
+
+  it("opens a standalone note window when a session row is double-clicked", async () => {
+    render(
+      <TimelineItemComponent
+        item={{
+          type: "session",
+          id: "session-note-window",
+          data: {
+            title: "Window Note",
+            created_at: "2024-01-15T10:30:00.000Z",
+          },
+        }}
+        precision="time"
+        selected={false}
+        timezone="UTC"
+        multiSelected={false}
+        flatItemKeys={["session-session-note-window"]}
+      />,
+    );
+
+    const rowButton = screen.getByText("Live Note").closest("button");
+    fireEvent.click(rowButton!, { detail: 1 });
+    fireEvent.click(rowButton!, { detail: 2 });
+    fireEvent.doubleClick(rowButton!);
+
+    await waitFor(() => {
+      expect(mocks.openCurrent).toHaveBeenCalledTimes(1);
+      expect(mocks.openCurrent).toHaveBeenCalledWith({
+        id: "session-note-window",
+        type: "sessions",
+      });
+    });
+    expect(mocks.timelineSelection.setAnchor).toHaveBeenCalledTimes(1);
+    expect(mocks.timelineSelection.setAnchor).toHaveBeenCalledWith(
+      "session-session-note-window",
+    );
+    expect(mocks.windowShow).toHaveBeenCalledWith({
+      type: "note",
+      value: "session-note-window",
+    });
+  });
+
+  it("offers a standalone window action for session rows", () => {
+    render(
+      <TimelineItemComponent
+        item={{
+          type: "session",
+          id: "session-note-window",
+          data: {
+            title: "Window Note",
+            created_at: "2024-01-15T10:30:00.000Z",
+          },
+        }}
+        precision="time"
+        selected={false}
+        timezone="UTC"
+        multiSelected={false}
+        flatItemKeys={["session-session-note-window"]}
+      />,
+    );
+
+    const menu = mocks.nativeContextMenus.find((items) =>
+      items.some((item) => item.id === "open-new-window"),
+    );
+
+    const openWindowItem = menu?.find((item) => item.id === "open-new-window");
+
+    expect(openWindowItem).toMatchObject({
+      id: "open-new-window",
+      text: "Open in New Window",
+    });
+
+    openWindowItem?.action?.();
+
+    expect(mocks.windowShow).toHaveBeenCalledWith({
+      type: "note",
+      value: "session-note-window",
+    });
+  });
+
+  it("offers lock note when device authentication is available", () => {
+    mocks.authAvailable = true;
+
+    render(
+      <TimelineItemComponent
+        item={{
+          type: "session",
+          id: "session-lock",
+          data: {
+            title: "Private",
+            created_at: "2024-01-15T10:30:00.000Z",
+          },
+        }}
+        precision="time"
+        selected={false}
+        timezone="UTC"
+        multiSelected={false}
+        flatItemKeys={["session-session-lock"]}
+      />,
+    );
+
+    const menu = mocks.nativeContextMenus.find((items) =>
+      items.some((item) => item.id === "lock"),
+    );
+
+    expect(menu?.find((item) => item.id === "lock")).toMatchObject({
+      id: "lock",
+      text: "Lock Note",
+    });
+  });
+
+  it("marks a locked note with a lock icon", () => {
+    render(
+      <TimelineItemComponent
+        item={{
+          type: "session",
+          id: "session-locked",
+          data: {
+            title: "Secret",
+            created_at: "2024-01-15T10:30:00.000Z",
+            locked: 1,
+          },
+        }}
+        precision="time"
+        selected={false}
+        timezone="UTC"
+        multiSelected={false}
+        flatItemKeys={["session-session-locked"]}
+      />,
+    );
+
+    expect(screen.getByLabelText("Locked note")).toBeTruthy();
+  });
+
+  it("marks a revealed locked note with an unlocked icon", () => {
+    mocks.revealedNoteIds = { "session-locked": true };
+
+    render(
+      <TimelineItemComponent
+        item={{
+          type: "session",
+          id: "session-locked",
+          data: {
+            title: "Secret",
+            created_at: "2024-01-15T10:30:00.000Z",
+            locked: 1,
+          },
+        }}
+        precision="time"
+        selected={true}
+        timezone="UTC"
+        multiSelected={false}
+        flatItemKeys={["session-session-locked"]}
+      />,
+    );
+
+    expect(screen.getByLabelText("Unlock Note")).toBeTruthy();
+    expect(screen.queryByLabelText("Locked note")).toBeNull();
+  });
+});
+
+// Mitschnitt-Fork (ISA N8, ZICK-251). "Delete Note" in the sidebar context
+// menu asks first and is off while the recording runs; until 02.09.2026 the
+// action called deleteSession directly, while the multi-select right next to
+// it already had the dialog.
+describe("TimelineItemComponent deleting a note", () => {
+  const item = {
+    type: "session" as const,
+    id: "session-1",
+    data: {
+      title: "Planning",
+      created_at: "2026-09-01T09:00:00.000Z",
+      event_json: JSON.stringify({ tracking_id: "tracking-1" }),
+    },
+  };
+
+  function renderItem() {
+    mocks.storeTitle = "Planning";
+    return render(
+      <TimelineItemComponent
+        item={item}
+        precision="time"
+        selected={false}
+        timezone="UTC"
+        multiSelected={false}
+        flatItemKeys={["session-session-1"]}
+      />,
+    );
+  }
+
+  function deleteEntry() {
+    const menu = mocks.nativeContextMenus.find((items) =>
+      items.some((entry) => entry.id === "delete"),
+    );
+    const entry = menu?.find((entry) => entry.id === "delete");
+    if (!entry) throw new Error("no delete entry in the context menu");
+    return entry as typeof entry & { disabled?: boolean };
+  }
+
+  beforeEach(() => {
+    cleanup();
+    mocks.nativeContextMenus = [];
+    mocks.sessionMode = "inactive";
+    mocks.liveStartup = { sessionId: null, loading: false };
+    mocks.deleteSession.mockClear();
+  });
+
+  it("asks before deleting and deletes exactly once on confirm", async () => {
+    renderItem();
+
+    expect(screen.queryByRole("dialog")).toBeNull();
+
+    act(() => {
+      deleteEntry().action?.();
+    });
+
+    expect(mocks.deleteSession).not.toHaveBeenCalled();
+    expect(
+      screen.getByRole("heading", { name: 'Delete "Planning"?' }),
+    ).toBeTruthy();
+    expect(screen.getByRole("dialog").textContent).toContain(
+      "You can undo this action for a short time.",
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+
+    expect(mocks.deleteSession).toHaveBeenCalledExactlyOnceWith("session-1", {
+      trackingId: "tracking-1",
+      title: "Planning",
+    });
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog")).toBeNull();
+    });
+  });
+
+  it("never deletes when the confirmation is cancelled", async () => {
+    renderItem();
+
+    act(() => {
+      deleteEntry().action?.();
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog")).toBeNull();
+    });
+    expect(mocks.deleteSession).not.toHaveBeenCalled();
+  });
+
+  it("offers a plain enabled entry for an idle note", () => {
+    renderItem();
+
+    expect(deleteEntry()).toMatchObject({
+      text: "Delete Note",
+      disabled: false,
+    });
+  });
+
+  // The recording is sacred: no delete entry while it runs, finalizes,
+  // starts up or is being transcribed. A native menu has no tooltip, so the
+  // reason rides in the label.
+  it.each(["active", "finalizing", "running_batch"])(
+    "disables the entry with a reason while the recording is %s",
+    (mode) => {
+      mocks.sessionMode = mode;
+
+      renderItem();
+
+      expect(deleteEntry()).toMatchObject({
+        text: "Delete Note (stop the recording first)",
+        disabled: true,
+      });
+    },
+  );
+
+  it("disables the entry while the recording of this note is starting up", () => {
+    mocks.liveStartup = { sessionId: "session-1", loading: true };
+
+    renderItem();
+
+    expect(deleteEntry().disabled).toBe(true);
+  });
+});

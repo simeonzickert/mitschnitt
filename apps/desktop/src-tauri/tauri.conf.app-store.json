@@ -1,0 +1,31 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "identifier": "media.zickert.mitschnitt.desktop",
+  "app": {
+    "macOSPrivateApi": false
+  },
+  "build": {
+    "features": [
+      "app-store"
+    ]
+  },
+  "bundle": {
+    "category": "Productivity",
+    "createUpdaterArtifacts": false,
+    "externalBin": [],
+    "targets": [
+      "app"
+    ],
+    "macOS": {
+      "entitlements": "./Entitlements.app-store.plist",
+      "files": {
+        "Resources/Assets.car": "./resources/app-store/Assets.car"
+      }
+    }
+  },
+  "plugins": {
+    "updater": {
+      "active": false
+    }
+  }
+}

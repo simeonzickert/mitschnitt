@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-find-import-sources"
+description = "Enables the find_import_sources command without any pre-configured scope."
+commands.allow = ["find_import_sources"]
+
+[[permission]]
+identifier = "deny-find-import-sources"
+description = "Denies the find_import_sources command without any pre-configured scope."
+commands.deny = ["find_import_sources"]

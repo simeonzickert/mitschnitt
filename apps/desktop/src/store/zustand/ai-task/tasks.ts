@@ -1,0 +1,660 @@
+import { APICallError, type LanguageModel } from "ai";
+import { create as mutate } from "mutative";
+import type { StoreApi } from "zustand";
+
+import { applyTransforms } from "./shared/transform_infra";
+import {
+  TASK_CONFIGS,
+  type TaskArgsMap,
+  type TaskId,
+  type TaskType,
+} from "./task-configs";
+
+import { getStoredSettingValues } from "~/settings/queries";
+
+export type TasksState = {
+  tasks: Record<string, TaskState>;
+};
+
+export type TasksActions = {
+  generate: <T extends TaskType>(
+    taskId: TaskId<T>,
+    config: {
+      model: LanguageModel;
+      taskType: T;
+      args: TaskArgsMap[T];
+      onComplete?: (text: string) => void;
+    },
+  ) => Promise<void>;
+  cancel: (taskId: string) => void;
+  reset: (taskId: string) => void;
+  syncRemoteTask: <T extends TaskType>(
+    taskId: TaskId<T>,
+    task: RemoteTaskState<T>,
+  ) => void;
+  syncRemoteTasks: (tasks: Record<string, RemoteTaskState>) => void;
+  getState: <T extends TaskType>(taskId: TaskId<T>) => TaskState<T> | undefined;
+};
+
+export type TaskStepInfo<T extends TaskType = TaskType> =
+  | { type: "generating" }
+  | { type: "reasoning" }
+  | (T extends "enhance"
+      ?
+          | { type: "analyzing" }
+          | { type: "retrying"; attempt: number; reason: string }
+      : never);
+
+export type TaskStatus = "idle" | "generating" | "success" | "error";
+
+export type TaskState<T extends TaskType = TaskType> = {
+  taskType: T;
+  status: TaskStatus;
+  streamedText: string;
+  error?: Error;
+  abortController: AbortController | null;
+  currentStep?: TaskStepInfo<T>;
+};
+
+export type RemoteTaskState<T extends TaskType = TaskType> = {
+  taskType: T;
+  status: TaskStatus;
+  streamedText: string;
+  error?: { name?: string; message: string };
+  currentStep?: TaskStepInfo<T>;
+};
+
+export function getTaskState<T extends TaskType>(
+  tasks: TasksState["tasks"],
+  taskId: TaskId<T>,
+): TaskState<T> | undefined {
+  const state = tasks[taskId];
+  if (state?.taskType) {
+    return state as TaskState<T>;
+  }
+  return undefined;
+}
+
+const initialState: TasksState = {
+  tasks: {},
+};
+
+export const TASK_STREAM_IDLE_TIMEOUT_MS = 15_000;
+export const TASK_STREAM_START_TIMEOUT_MS = 60_000;
+// On-device models can spend minutes loading weights and prefilling a long
+// transcript before the first token; the remote-grade start timeout would
+// kill them mid-warmup.
+export const TASK_STREAM_LOCAL_START_TIMEOUT_MS = 5 * 60_000;
+
+const LOCAL_MODEL_PROVIDERS = new Set([
+  "apple_foundation",
+  "lmstudio",
+  "ollama",
+  "unsloth",
+]);
+
+export function isLocalModelProviderId(providerId: string) {
+  return LOCAL_MODEL_PROVIDERS.has(providerId);
+}
+
+export function getTaskStreamStartTimeoutMs(model: LanguageModel) {
+  const provider =
+    typeof model !== "string" && typeof model.provider === "string"
+      ? model.provider
+      : "";
+  const providerId = provider.split(".", 1)[0];
+
+  return isLocalModelProviderId(providerId)
+    ? TASK_STREAM_LOCAL_START_TIMEOUT_MS
+    : TASK_STREAM_START_TIMEOUT_MS;
+}
+export const MAX_RETAINED_AI_TASKS = 256;
+export const MAX_AI_TASK_STREAM_CHARACTERS = 256 * 1024;
+
+const DATABASE_LOCK_RETRY_DELAYS_MS = [
+  250, 500, 1_000, 2_000, 4_000, 8_000, 16_000, 30_000,
+];
+const STREAM_TIMEOUT = Symbol("stream-timeout");
+
+function createAbortError() {
+  const error = new Error("Aborted");
+  error.name = "AbortError";
+  return error;
+}
+
+function throwIfAborted(signal: AbortSignal) {
+  if (signal.aborted) {
+    throw createAbortError();
+  }
+}
+
+function isDatabaseLockError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  const normalized = message.toLowerCase();
+  return (
+    normalized.includes("database is locked") ||
+    normalized.includes("database table is locked") ||
+    normalized.includes("(code: 5)") ||
+    normalized.includes("(code: 6)")
+  );
+}
+
+async function waitForDatabaseRetry(delayMs: number, signal: AbortSignal) {
+  throwIfAborted(signal);
+
+  await new Promise<void>((resolve, reject) => {
+    let settled = false;
+    const handleAbort = () => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      clearTimeout(timeout);
+      signal.removeEventListener("abort", handleAbort);
+      reject(createAbortError());
+    };
+    const timeout = setTimeout(() => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      signal.removeEventListener("abort", handleAbort);
+      resolve();
+    }, delayMs);
+    signal.addEventListener("abort", handleAbort, { once: true });
+    if (signal.aborted) {
+      handleAbort();
+    }
+  });
+}
+
+async function withDatabaseLockRetry<T>(
+  run: () => Promise<T>,
+  signal: AbortSignal,
+): Promise<T> {
+  for (let attempt = 0; ; attempt++) {
+    throwIfAborted(signal);
+    try {
+      return await run();
+    } catch (error) {
+      if (
+        !isDatabaseLockError(error) ||
+        attempt >= DATABASE_LOCK_RETRY_DELAYS_MS.length
+      ) {
+        throw error;
+      }
+      await waitForDatabaseRetry(
+        DATABASE_LOCK_RETRY_DELAYS_MS[attempt],
+        signal,
+      );
+    }
+  }
+}
+
+async function readStreamChunkWithTimeout<T>(
+  iterator: AsyncIterator<T>,
+  timeoutMs: number,
+): Promise<IteratorResult<T> | typeof STREAM_TIMEOUT> {
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<typeof STREAM_TIMEOUT>((resolve) => {
+    timeoutId = setTimeout(() => resolve(STREAM_TIMEOUT), timeoutMs);
+  });
+
+  try {
+    return await Promise.race([iterator.next(), timeout]);
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+  }
+}
+
+export const createTasksSlice = <T extends TasksState & TasksActions>(
+  set: StoreApi<T>["setState"],
+  get: StoreApi<T>["getState"],
+): TasksState & TasksActions => ({
+  ...initialState,
+  getState: <Task extends TaskType>(
+    taskId: TaskId<Task>,
+  ): TaskState<Task> | undefined => {
+    const task = get().tasks[taskId];
+    return task as TaskState<Task> | undefined;
+  },
+  cancel: (taskId: string) => {
+    set((state) =>
+      mutate(state, (draft) => {
+        const task = draft.tasks[taskId];
+        if (!task) {
+          return;
+        }
+
+        task.abortController?.abort();
+
+        draft.tasks[taskId] = {
+          taskType: task.taskType,
+          status: "idle",
+          streamedText: task.streamedText,
+          error: undefined,
+          abortController: null,
+          currentStep: undefined,
+        };
+      }),
+    );
+  },
+  reset: (taskId: string) => {
+    const state = get().tasks[taskId];
+    if (state) {
+      set((currentState) =>
+        mutate(currentState, (draft) => {
+          draft.tasks[taskId]?.abortController?.abort();
+          draft.tasks[taskId] = {
+            taskType: state.taskType,
+            status: "idle",
+            streamedText: "",
+            error: undefined,
+            abortController: null,
+            currentStep: undefined,
+          };
+        }),
+      );
+    }
+  },
+  syncRemoteTask: <Task extends TaskType>(
+    taskId: TaskId<Task>,
+    task: RemoteTaskState<Task>,
+  ) => {
+    set((state) =>
+      mutate(state, (draft) => {
+        draft.tasks = setBoundedTaskState(draft.tasks, taskId, {
+          ...toSyncedTaskState(task),
+        });
+      }),
+    );
+  },
+  syncRemoteTasks: (tasks) => {
+    set((state) =>
+      mutate(state, (draft) => {
+        draft.tasks = Object.fromEntries(
+          Object.entries(tasks)
+            .slice(-MAX_RETAINED_AI_TASKS)
+            .map(([taskId, task]) => [taskId, toSyncedTaskState(task)]),
+        );
+      }),
+    );
+  },
+  generate: async <Task extends TaskType>(
+    taskId: TaskId<Task>,
+    config: {
+      model: LanguageModel;
+      taskType: Task;
+      args: TaskArgsMap[Task];
+      onComplete?: (text: string) => void;
+    },
+  ) => {
+    const existingTask = get().tasks[taskId];
+    if (existingTask?.status === "generating") {
+      return;
+    }
+
+    const abortController = new AbortController();
+    const taskConfig = TASK_CONFIGS[config.taskType];
+
+    try {
+      set((state) =>
+        mutate(state, (draft) => {
+          draft.tasks = setBoundedTaskState(draft.tasks, taskId, {
+            taskType: config.taskType,
+            status: "generating",
+            streamedText: "",
+            error: undefined,
+            abortController,
+            currentStep: undefined,
+          });
+        }),
+      );
+
+      const { values: settingsValues } = await withDatabaseLockRetry(
+        getStoredSettingValues,
+        abortController.signal,
+      );
+      const enrichedArgs = await withDatabaseLockRetry(
+        () => taskConfig.transformArgs(config.args, settingsValues),
+        abortController.signal,
+      );
+      let fullText = "";
+      let reasoningActive = false;
+
+      const checkAbort = () => {
+        throwIfAborted(abortController.signal);
+      };
+
+      const onProgress = (step: TaskStepInfo<Task>) => {
+        set((state) =>
+          mutate(state, (draft) => {
+            const currentState = draft.tasks[taskId];
+            if (currentState?.taskType === config.taskType) {
+              (currentState as any).currentStep = step;
+            }
+          }),
+        );
+      };
+
+      const workflowAbortController = new AbortController();
+      const abortWorkflow = () => workflowAbortController.abort();
+      abortController.signal.addEventListener("abort", abortWorkflow, {
+        once: true,
+      });
+      let workflowCompleted = false;
+
+      try {
+        const workflowStream = taskConfig.executeWorkflow({
+          model: config.model,
+          args: enrichedArgs,
+          onProgress,
+          signal: workflowAbortController.signal,
+        });
+
+        const transforms = taskConfig.transforms ?? [];
+        const transformedStream = applyTransforms(workflowStream, transforms, {
+          stopStream: abortWorkflow,
+        });
+        const iterator = transformedStream[Symbol.asyncIterator]();
+
+        while (true) {
+          const result = await readStreamChunkWithTimeout(
+            iterator,
+            fullText.trim()
+              ? TASK_STREAM_IDLE_TIMEOUT_MS
+              : getTaskStreamStartTimeoutMs(config.model),
+          );
+          checkAbort();
+
+          if (result === STREAM_TIMEOUT) {
+            workflowAbortController.abort();
+            if (fullText.trim()) {
+              break;
+            }
+            throw new Error("AI generation did not return any text.");
+          }
+
+          if (result.done) {
+            workflowCompleted = true;
+            break;
+          }
+
+          const chunk = result.value;
+
+          if (chunk.type === "error") {
+            throw chunk.error;
+          } else if (
+            (chunk.type === "reasoning-start" ||
+              chunk.type === "reasoning-delta") &&
+            !reasoningActive &&
+            !fullText
+          ) {
+            reasoningActive = true;
+            onProgress({ type: "reasoning" });
+          } else if (chunk.type === "text-delta") {
+            if (reasoningActive) {
+              reasoningActive = false;
+              onProgress({ type: "generating" });
+            }
+            if (
+              fullText.length + chunk.text.length >
+              MAX_AI_TASK_STREAM_CHARACTERS
+            ) {
+              workflowAbortController.abort();
+              throw new Error("AI generation exceeded the safe output limit.");
+            }
+            fullText += chunk.text;
+
+            set((state) =>
+              mutate(state, (draft) => {
+                const currentState = draft.tasks[taskId];
+                if (currentState) {
+                  currentState.streamedText = fullText;
+                }
+              }),
+            );
+          }
+        }
+      } finally {
+        if (!workflowCompleted) {
+          workflowAbortController.abort();
+        }
+        abortController.signal.removeEventListener("abort", abortWorkflow);
+      }
+
+      const onSuccess = taskConfig.onSuccess;
+      if (onSuccess) {
+        await withDatabaseLockRetry(
+          () =>
+            Promise.resolve(
+              onSuccess({
+                taskId,
+                text: fullText,
+                model: config.model,
+                args: config.args,
+                transformedArgs: enrichedArgs,
+                signal: abortController.signal,
+                startTask: (nextTaskId, nextConfig) =>
+                  get().generate(nextTaskId, nextConfig),
+                getTaskState: (nextTaskId) =>
+                  getTaskState(get().tasks, nextTaskId),
+              }),
+            ),
+          abortController.signal,
+        );
+      }
+
+      checkAbort();
+
+      set((state) =>
+        mutate(state, (draft) => {
+          draft.tasks[taskId] = {
+            taskType: config.taskType,
+            status: "success",
+            streamedText: fullText,
+            error: undefined,
+            abortController: null,
+            currentStep: undefined,
+          };
+        }),
+      );
+
+      try {
+        config.onComplete?.(fullText);
+      } catch (error) {
+        console.error("Task onComplete callback failed:", error);
+      }
+    } catch (err) {
+      // A reset/regenerate may already own this task id; a stale run must not
+      // clobber the replacement's state.
+      if (get().tasks[taskId]?.abortController !== abortController) {
+        return;
+      }
+
+      if (
+        err instanceof Error &&
+        (err.name === "AbortError" || err.message === "Aborted")
+      ) {
+        set((state) =>
+          mutate(state, (draft) => {
+            draft.tasks[taskId] = {
+              taskType: config.taskType,
+              status: "idle",
+              streamedText: "",
+              error: undefined,
+              abortController: null,
+              currentStep: undefined,
+            };
+          }),
+        );
+      } else {
+        const error = extractUnderlyingError(err);
+        set((state) =>
+          mutate(state, (draft) => {
+            draft.tasks[taskId] = {
+              taskType: config.taskType,
+              status: "error",
+              streamedText: "",
+              error,
+              abortController: null,
+              currentStep: undefined,
+            };
+          }),
+        );
+      }
+    }
+  },
+});
+
+function setBoundedTaskState(
+  tasks: Record<string, TaskState>,
+  taskId: string,
+  nextTask: TaskState,
+): Record<string, TaskState> {
+  const entries = Object.entries(tasks).filter(([id]) => id !== taskId);
+  entries.push([taskId, nextTask]);
+
+  while (entries.length > MAX_RETAINED_AI_TASKS) {
+    let removeIndex = entries.findIndex(
+      ([id, task]) => id !== taskId && task.status !== "generating",
+    );
+    if (removeIndex === -1) {
+      removeIndex = entries.findIndex(([id]) => id !== taskId);
+    }
+    if (removeIndex === -1) {
+      break;
+    }
+    entries[removeIndex]?.[1].abortController?.abort();
+    entries.splice(removeIndex, 1);
+  }
+
+  return Object.fromEntries(entries);
+}
+
+function toSyncedTaskState(task: RemoteTaskState): TaskState {
+  return {
+    taskType: task.taskType,
+    status: task.status,
+    streamedText: task.streamedText.slice(0, MAX_AI_TASK_STREAM_CHARACTERS),
+    error: task.error ? createSyncedTaskError(task.error) : undefined,
+    abortController: null,
+    currentStep: task.currentStep,
+  };
+}
+
+function createSyncedTaskError(error: { name?: string; message: string }) {
+  const synced = new Error(error.message);
+  if (error.name) {
+    synced.name = error.name;
+  }
+  return synced;
+}
+
+export function extractUnderlyingError(err: unknown): Error {
+  if (!(err instanceof Error)) {
+    return new Error(String(err));
+  }
+
+  let error = err;
+
+  if (err.name === "AI_RetryError") {
+    if ("cause" in err && err.cause instanceof Error) {
+      error = err.cause;
+      return normalizeTaskError(error);
+    }
+
+    if ("lastError" in err && err.lastError instanceof Error) {
+      error = err.lastError;
+      return normalizeTaskError(error);
+    }
+
+    if ("errors" in err && Array.isArray((err as any).errors)) {
+      const errors = (err as any).errors;
+      if (errors.length > 0 && errors[errors.length - 1] instanceof Error) {
+        error = errors[errors.length - 1];
+        return normalizeTaskError(error);
+      }
+    }
+
+    const match = err.message.match(/Last error: (.+)$/);
+    if (match) {
+      const underlyingMessage = match[1];
+      const underlyingError = new Error(underlyingMessage);
+      underlyingError.name = "AI_ProviderError";
+      return normalizeTaskError(underlyingError);
+    }
+  }
+
+  return normalizeTaskError(error);
+}
+
+const TRANSIENT_AI_ERROR_MESSAGE =
+  "The AI model is overloaded right now. Wait a moment, then retry.";
+
+const TRANSIENT_AI_ERROR_PATTERNS = [
+  "overload",
+  "rate limit",
+  "rate_limit",
+  "too many requests",
+  "429",
+  "timeout",
+  "timed out",
+  "temporarily unavailable",
+  "service unavailable",
+  "502",
+  "503",
+  "504",
+];
+
+function normalizeTaskError(error: Error): Error {
+  if (!isRetryableAIError(error)) {
+    return error;
+  }
+
+  const normalized = new Error(TRANSIENT_AI_ERROR_MESSAGE);
+  normalized.name = error.name;
+  return normalized;
+}
+
+const MAX_CLASSIFIABLE_MESSAGE_LENGTH = 1_000;
+
+export function isRetryableAIError(error: Error): boolean {
+  if (APICallError.isInstance(error) || isAPICallErrorShape(error)) {
+    const apiError = error as Error & {
+      statusCode?: number;
+      isRetryable?: boolean;
+    };
+    if (apiError.statusCode === 409) {
+      return false;
+    }
+
+    return (
+      apiError.isRetryable === true ||
+      apiError.statusCode === 429 ||
+      apiError.statusCode === 408 ||
+      (typeof apiError.statusCode === "number" && apiError.statusCode >= 500)
+    );
+  }
+
+  // API call error messages embed the request body, so scanning long messages
+  // would match transient-looking words inside user content and misclassify
+  // permanent failures as retryable.
+  if (error.message.length > MAX_CLASSIFIABLE_MESSAGE_LENGTH) {
+    return false;
+  }
+
+  const message = error.message.toLowerCase();
+  return TRANSIENT_AI_ERROR_PATTERNS.some((pattern) =>
+    message.includes(pattern),
+  );
+}
+
+// A duplicated `ai` package in the bundle defeats APICallError.isInstance, so
+// also match the serialized shape.
+function isAPICallErrorShape(error: Error): boolean {
+  return (
+    error.name === "AI_APICallError" &&
+    typeof (error as { isRetryable?: unknown }).isRetryable === "boolean"
+  );
+}

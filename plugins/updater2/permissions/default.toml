@@ -1,0 +1,3 @@
+[default]
+description = "Default permissions for the plugin"
+permissions = ["allow-check", "allow-download", "allow-install-and-relaunch", "allow-is-downloaded", "allow-maybe-emit-updated", "allow-set-automatic-updates-enabled", "allow-set-meeting-active"]

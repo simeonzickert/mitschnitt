@@ -1,0 +1,764 @@
+import type { EventParticipant, SessionEvent } from "@anlg/store";
+
+const MAX_EVENT_TEXT_CHARS = 6000;
+const MAX_CONTACTS_TO_EXTRACT = 8;
+
+export type EventContactCandidate = {
+  humanId?: string;
+  name?: string;
+  email?: string;
+  isCurrentUser?: boolean;
+  isOrganizer?: boolean;
+};
+
+export type EventContactExtractionContext = {
+  title?: string;
+  description?: string;
+  candidates: EventContactCandidate[];
+};
+
+export type ExtractedEventContact = {
+  name: string;
+  email?: string;
+  companyName?: string;
+};
+
+export type ExtractEventContactsResult = {
+  contacts: ExtractedEventContact[];
+  source: "local";
+};
+
+export type ApplyExtractedContactsResult = {
+  created: number;
+  updated: number;
+  linked: number;
+  skipped: number;
+  contacts: ExtractedEventContact[];
+};
+
+export type ApplyContactEnhancementResult = ApplyExtractedContactsResult & {
+  matched: boolean;
+};
+
+export type ContactEnhancementChanges = {
+  name?: string;
+  email?: string;
+  companyName?: string;
+};
+
+export function buildEventContactExtractionContextFromRecords({
+  sessionEvent,
+  currentUserId,
+  participants,
+  eventParticipants,
+}: {
+  sessionEvent: SessionEvent | null;
+  currentUserId: string;
+  participants: Array<{
+    humanId: string;
+    name: string;
+    email: string;
+    source: string;
+  }>;
+  eventParticipants: EventParticipant[];
+}): EventContactExtractionContext {
+  return {
+    title: sessionEvent?.title,
+    description: sessionEvent?.description,
+    candidates: dedupeCandidates([
+      ...participants
+        .filter((participant) => participant.source !== "excluded")
+        .map((participant) => ({
+          humanId: participant.humanId,
+          name: participant.name,
+          email: participant.email,
+          isCurrentUser: participant.humanId === currentUserId,
+        })),
+      ...eventParticipants.map((participant) => ({
+        name: participant.name,
+        email: participant.email,
+        isCurrentUser: participant.is_current_user,
+        isOrganizer: participant.is_organizer,
+      })),
+    ]),
+  };
+}
+
+export function planExtractedContactToHuman({
+  humanId,
+  userId,
+  human,
+  currentUser,
+  mappingSource,
+  participant,
+  contacts,
+}: {
+  humanId: string;
+  userId: string;
+  human: { name: string; email: string; organizationId: string } | undefined;
+  currentUser: { name: string; email: string } | undefined;
+  mappingSource: string | undefined;
+  participant?: { name: string; email: string };
+  contacts: ExtractedEventContact[];
+}): {
+  result: ApplyContactEnhancementResult;
+  changes: ContactEnhancementChanges;
+} {
+  const normalizedContacts = normalizeExtractedContacts(contacts, []);
+  const result: ApplyContactEnhancementResult = {
+    created: 0,
+    updated: 0,
+    linked: 0,
+    skipped: 0,
+    contacts: [],
+    matched: false,
+  };
+  const changes: ContactEnhancementChanges = {};
+
+  if (!mappingSource || mappingSource === "excluded") {
+    if (normalizedContacts.length > 0) result.skipped += 1;
+    return { result, changes };
+  }
+
+  const identity = {
+    name: human?.name || participant?.name || "",
+    email: human?.email || participant?.email || "",
+    organizationId: human?.organizationId || "",
+  };
+  const contact =
+    findContactForHuman(identity, normalizedContacts) ??
+    contactFromIdentity(identity);
+
+  if (!contact) {
+    if (humanId === userId && normalizedContacts[0]) {
+      result.matched = true;
+      result.contacts.push(normalizedContacts[0]);
+      result.skipped += 1;
+    }
+    return { result, changes };
+  }
+
+  result.matched = true;
+  result.contacts.push(contact);
+  if (humanId === userId || isCurrentUserContact(contact, currentUser)) {
+    result.skipped += 1;
+    return { result, changes };
+  }
+
+  if (!human) {
+    changes.name = contact.name;
+    if (contact.email) changes.email = contact.email;
+    if (contact.companyName) changes.companyName = contact.companyName;
+    result.created = 1;
+    return { result, changes };
+  }
+
+  if (shouldUpdateHumanName(human.name, contact.email)) {
+    changes.name = contact.name;
+  }
+  if (shouldUpdateHumanEmail(human.email, contact.email)) {
+    changes.email = contact.email;
+  }
+  if (!human.organizationId && contact.companyName) {
+    changes.companyName = contact.companyName;
+  }
+  if (Object.keys(changes).length > 0) result.updated = 1;
+
+  return { result, changes };
+}
+
+export function extractEventContacts({
+  context,
+}: {
+  context: EventContactExtractionContext;
+}): ExtractEventContactsResult {
+  const contacts = normalizeExtractedContacts(
+    [
+      ...inferContactsFromEventText(context),
+      ...context.candidates.flatMap((candidate) =>
+        candidate.isCurrentUser
+          ? []
+          : [{ name: candidate.name, email: candidate.email }],
+      ),
+    ],
+    context.candidates,
+  );
+
+  return { contacts, source: "local" };
+}
+
+function dedupeCandidates(
+  candidates: EventContactCandidate[],
+): EventContactCandidate[] {
+  const byKey = new Map<string, EventContactCandidate>();
+
+  for (const candidate of candidates) {
+    const email = normalizeEmail(candidate.email);
+    const humanId = candidate.humanId?.trim();
+    const name = cleanNameHint(candidate.name ?? "");
+    const key = email
+      ? `email:${email}`
+      : humanId
+        ? `human:${humanId}`
+        : name
+          ? `name:${normalizeName(name)}`
+          : "";
+
+    if (!key) {
+      continue;
+    }
+
+    const existing = byKey.get(key);
+    byKey.set(key, {
+      ...existing,
+      ...candidate,
+      name: existing?.name || name || candidate.name,
+      email: existing?.email || candidate.email,
+      isCurrentUser: existing?.isCurrentUser || candidate.isCurrentUser,
+      isOrganizer: existing?.isOrganizer || candidate.isOrganizer,
+    });
+  }
+
+  return Array.from(byKey.values());
+}
+
+function trimEventText(value: string | undefined): string {
+  if (!value) {
+    return "";
+  }
+
+  return stripHtml(value).trim().slice(0, MAX_EVENT_TEXT_CHARS);
+}
+
+function inferContactsFromEventText(
+  context: EventContactExtractionContext,
+): ExtractedEventContact[] {
+  const contacts = new Map<string, ExtractedEventContact>();
+  const lines = [context.title, context.description]
+    .flatMap((value) => trimEventText(value).split(/\n+/))
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  const addName = (value: string) => {
+    const name = cleanNameHint(
+      value
+        .replace(/^[\w\s]+:\s*/, "")
+        .replace(/<[^>]*@[^>]*>/g, "")
+        .replace(/\([^)]*(organizer|host|required|optional)[^)]*\)/gi, ""),
+    );
+    const key = normalizeName(name);
+    if (
+      !key ||
+      !isLikelyPersonName(name) ||
+      isSelfReference(name, context.candidates)
+    ) {
+      return;
+    }
+
+    contacts.set(key, { name });
+  };
+
+  for (const line of lines) {
+    const betweenMatch = line.match(
+      /\bbetween\s+(.+?)(?:\s+(?:at|on|for)\b|$)/i,
+    );
+    if (betweenMatch?.[1]) {
+      addDelimitedNames(betweenMatch[1], addName);
+      continue;
+    }
+
+    if (line.includes("<>")) {
+      addDelimitedNames(line, addName);
+    }
+  }
+
+  return Array.from(contacts.values());
+}
+
+function addDelimitedNames(value: string, addName: (name: string) => void) {
+  for (const part of value.split(/\s*(?:<>|<->)\s*|\s+\band\b\s+|\s+&\s+/i)) {
+    addName(part);
+  }
+}
+
+function stripHtml(value: string): string {
+  return value
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/p>/gi, "\n")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/\u00a0/g, " ");
+}
+
+function normalizeExtractedContacts(
+  contacts: Array<{
+    name?: string | null;
+    email?: string | null;
+    companyName?: string | null;
+  }>,
+  candidates: EventContactCandidate[],
+): ExtractedEventContact[] {
+  const deduped = new Map<string, ExtractedEventContact>();
+  const keysByName = new Map<string, string>();
+
+  for (const contact of contacts) {
+    let name = cleanNameHint(contact.name ?? "");
+    const email =
+      normalizeEmail(contact.email ?? undefined) ?? normalizeEmail(name);
+    if (!isLikelyPersonName(name) && email) {
+      name = nameFromEmailLocalPart(email);
+    }
+    if (
+      !isLikelyPersonName(name) ||
+      (!email && isSelfReference(name, candidates))
+    ) {
+      continue;
+    }
+
+    const matchedEmail = email || matchCandidateEmail(name, candidates);
+    const companyName =
+      normalizeCompanyName(contact.companyName) ??
+      inferCompanyNameFromEmail(matchedEmail);
+    const normalizedContact: ExtractedEventContact = {
+      name,
+    };
+    if (matchedEmail) {
+      normalizedContact.email = matchedEmail;
+    }
+    if (companyName) {
+      normalizedContact.companyName = companyName;
+    }
+
+    if (isSelfContactFromCandidates(normalizedContact, candidates)) {
+      continue;
+    }
+
+    const nameKey = normalizeName(name);
+    const key = matchedEmail ? `email:${matchedEmail}` : `name:${nameKey}`;
+    const existingKey = deduped.has(key) ? key : keysByName.get(nameKey);
+    const existingContact = existingKey ? deduped.get(existingKey) : undefined;
+    if (!existingContact) {
+      deduped.set(key, normalizedContact);
+      keysByName.set(nameKey, key);
+      continue;
+    }
+
+    const existingEmail = normalizeEmail(existingContact.email);
+    if (matchedEmail && existingEmail && existingEmail !== matchedEmail) {
+      if (existingKey) {
+        deduped.delete(existingKey);
+      }
+      deduped.set(key, normalizedContact);
+      keysByName.set(nameKey, key);
+      continue;
+    }
+
+    const mergedContact: ExtractedEventContact = { name: existingContact.name };
+    const mergedEmail = existingContact.email ?? normalizedContact.email;
+    const mergedCompanyName =
+      existingContact.companyName ?? normalizedContact.companyName;
+    if (mergedEmail) {
+      mergedContact.email = mergedEmail;
+    }
+    if (mergedCompanyName) {
+      mergedContact.companyName = mergedCompanyName;
+    }
+    const mergedKey = mergedContact.email
+      ? `email:${mergedContact.email}`
+      : `name:${nameKey}`;
+
+    if (existingKey && existingKey !== mergedKey) {
+      deduped.delete(existingKey);
+    }
+    deduped.set(mergedKey, mergedContact);
+    keysByName.set(nameKey, mergedKey);
+  }
+
+  return Array.from(deduped.values()).slice(0, MAX_CONTACTS_TO_EXTRACT);
+}
+
+function cleanNameHint(value: string): string {
+  return value
+    .replace(/\s+/g, " ")
+    .replace(/^[#>*\-\s]+/, "")
+    .replace(/\s+-\s+(organizer|host|required|optional)$/i, "")
+    .replace(/^["'`]+/, "")
+    .replace(/["'`,.;:]+$/, "")
+    .trim();
+}
+
+function isLikelyPersonName(value: string): boolean {
+  if (!value || value.length < 2 || value.length > 80) {
+    return false;
+  }
+
+  if (value.includes("@") || /^https?:\/\//i.test(value)) {
+    return false;
+  }
+
+  const normalized = normalizeName(value);
+  if (
+    !normalized ||
+    [
+      "what",
+      "who",
+      "invitee timezone",
+      "meeting link",
+      "zoom",
+      "google meet",
+      "teams",
+    ].includes(normalized)
+  ) {
+    return false;
+  }
+
+  return (value.match(/\p{L}/gu)?.length ?? 0) >= 2;
+}
+
+function matchCandidateEmail(
+  name: string,
+  candidates: EventContactCandidate[],
+): string | undefined {
+  const nameTokens = tokenizeName(name);
+  if (nameTokens.length === 0) {
+    return undefined;
+  }
+
+  let best: { email: string; score: number } | null = null;
+  const firstNameMatches: string[] = [];
+  const firstNameToken = nameTokens[0];
+
+  for (const candidate of candidates) {
+    const email = normalizeEmail(candidate.email);
+    if (!email || candidate.isCurrentUser) {
+      continue;
+    }
+
+    const candidateTokens = new Set([
+      ...tokenizeName(candidate.name ?? ""),
+      ...tokenizeName(email.split("@")[0]?.replace(/[._+-]+/g, " ") ?? ""),
+    ]);
+    if (candidateTokens.size === 0) {
+      continue;
+    }
+
+    const matched = nameTokens.filter((token) => candidateTokens.has(token));
+    const score = matched.length / nameTokens.length;
+    const enoughSignal =
+      nameTokens.length === 1
+        ? score === 1
+        : score >= 0.67 || matched.length >= 2;
+
+    if (enoughSignal && (!best || score > best.score)) {
+      best = { email, score };
+    } else if (
+      firstNameToken &&
+      nameTokens.length > 1 &&
+      matched.length === 1 &&
+      matched[0] === firstNameToken
+    ) {
+      firstNameMatches.push(email);
+    }
+  }
+
+  return (
+    best?.email ??
+    (firstNameMatches.length === 1 ? firstNameMatches[0] : undefined)
+  );
+}
+
+function isSelfReference(
+  value: string,
+  candidates: EventContactCandidate[],
+): boolean {
+  const normalized = normalizeName(value);
+  if (!normalized) {
+    return false;
+  }
+
+  return candidates.some((candidate) => {
+    if (!candidate.isCurrentUser) {
+      return false;
+    }
+
+    return getCandidateAliases(candidate).has(normalized);
+  });
+}
+
+function isSelfContactFromCandidates(
+  contact: ExtractedEventContact,
+  candidates: EventContactCandidate[],
+): boolean {
+  const email = normalizeEmail(contact.email);
+  const name = normalizeName(contact.name);
+
+  return candidates.some((candidate) => {
+    if (!candidate.isCurrentUser) {
+      return false;
+    }
+
+    const candidateEmail = normalizeEmail(candidate.email);
+    if (email) {
+      return Boolean(candidateEmail && email === candidateEmail);
+    }
+
+    return getCandidateAliases(candidate).has(name);
+  });
+}
+
+function isCurrentUserContact(
+  contact: ExtractedEventContact,
+  currentUser: Record<string, unknown> | undefined,
+): boolean {
+  if (!currentUser) {
+    return false;
+  }
+
+  const email = normalizeEmail(contact.email);
+  const currentEmail = normalizeEmail(stringCell(currentUser.email));
+  if (email && currentEmail) {
+    return email === currentEmail;
+  }
+
+  const currentUserCandidate: EventContactCandidate = {
+    name: stringCell(currentUser.name),
+    email: stringCell(currentUser.email),
+    isCurrentUser: true,
+  };
+  return getCandidateAliases(currentUserCandidate).has(
+    normalizeName(contact.name),
+  );
+}
+
+function findContactForHuman(
+  human: Record<string, unknown>,
+  contacts: ExtractedEventContact[],
+): ExtractedEventContact | undefined {
+  const humanCandidate: EventContactCandidate = {
+    name: stringCell(human.name),
+    email: stringCell(human.email),
+  };
+  const humanEmail = normalizeEmail(humanCandidate.email);
+  const humanName = normalizeName(humanCandidate.name ?? "");
+  const humanAliases = getStrongCandidateAliases(humanCandidate);
+
+  return contacts.find((contact) => {
+    const contactEmail = normalizeEmail(contact.email);
+    if (humanEmail && contactEmail === humanEmail) {
+      return true;
+    }
+
+    const contactName = normalizeName(contact.name);
+    if (contactName && humanAliases.has(contactName)) {
+      return true;
+    }
+
+    const contactAliases = getStrongCandidateAliases({
+      name: contact.name,
+      email: contact.email,
+    });
+    return Boolean(humanName && contactAliases.has(humanName));
+  });
+}
+
+function getCandidateAliases(candidate: EventContactCandidate): Set<string> {
+  const aliases = getStrongCandidateAliases(candidate);
+  const nameTokens = tokenizeName(candidate.name ?? "");
+
+  if (nameTokens[0]) {
+    aliases.add(nameTokens[0]);
+  }
+
+  const emailLocal = candidate.email?.split("@")[0];
+  if (emailLocal) {
+    const emailTokens = tokenizeName(emailLocal.replace(/[._+-]+/g, " "));
+    const normalizedEmailLocal = normalizeName(
+      emailLocal.replace(/[._+-]+/g, " "),
+    );
+    if (normalizedEmailLocal) {
+      aliases.add(normalizedEmailLocal);
+    }
+    if (emailTokens[0]) {
+      aliases.add(emailTokens[0]);
+    }
+  }
+
+  return aliases;
+}
+
+function getStrongCandidateAliases(
+  candidate: EventContactCandidate,
+): Set<string> {
+  const aliases = new Set<string>();
+  const normalizedName = normalizeName(candidate.name ?? "");
+
+  if (normalizedName) {
+    aliases.add(normalizedName);
+  }
+
+  const emailLocal = candidate.email?.split("@")[0];
+  if (emailLocal) {
+    const normalizedEmailLocal = normalizeName(
+      emailLocal.replace(/[._+-]+/g, " "),
+    );
+    if (normalizedEmailLocal) {
+      aliases.add(normalizedEmailLocal);
+    }
+  }
+
+  return aliases;
+}
+
+const PERSONAL_EMAIL_DOMAINS = new Set([
+  "gmail.com",
+  "googlemail.com",
+  "yahoo.com",
+  "outlook.com",
+  "hotmail.com",
+  "live.com",
+  "msn.com",
+  "icloud.com",
+  "me.com",
+  "mac.com",
+  "aol.com",
+  "proton.me",
+  "protonmail.com",
+  "pm.me",
+  "hey.com",
+  "fastmail.com",
+]);
+
+function contactFromIdentity(identity: {
+  name?: string;
+  email?: string;
+}): ExtractedEventContact | undefined {
+  const rawName = cleanNameHint(identity.name ?? "");
+  const email = normalizeEmail(identity.email) ?? normalizeEmail(rawName);
+  const name = isLikelyPersonName(rawName)
+    ? rawName
+    : email
+      ? nameFromEmailLocalPart(email)
+      : "";
+  if (!isLikelyPersonName(name)) {
+    return undefined;
+  }
+
+  const contact: ExtractedEventContact = { name };
+  if (email) {
+    contact.email = email;
+  }
+  const companyName = inferCompanyNameFromEmail(email);
+  if (companyName) {
+    contact.companyName = companyName;
+  }
+  return contact;
+}
+
+function nameFromEmailLocalPart(email: string): string {
+  const local = email.split("@")[0]?.split("+")[0] ?? "";
+  return local
+    .replace(/[._-]+/g, " ")
+    .split(" ")
+    .map((part) => part.trim())
+    .filter((part) => part.length > 0 && !/^\d+$/.test(part))
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
+    .join(" ");
+}
+
+function inferCompanyNameFromEmail(
+  email: string | undefined,
+): string | undefined {
+  const domain = email?.split("@")[1]?.toLowerCase();
+  if (!domain || PERSONAL_EMAIL_DOMAINS.has(domain)) {
+    return undefined;
+  }
+
+  const labels = domain.split(".").filter(Boolean);
+  if (labels.length < 2) {
+    return undefined;
+  }
+
+  const secondLast = labels[labels.length - 2];
+  const companyLabel =
+    labels.length >= 3 &&
+    secondLast &&
+    ["co", "com", "org", "net", "ac"].includes(secondLast)
+      ? labels[labels.length - 3]
+      : secondLast;
+  if (!companyLabel || companyLabel.length < 2) {
+    return undefined;
+  }
+
+  return normalizeCompanyName(
+    companyLabel.charAt(0).toUpperCase() + companyLabel.slice(1),
+  );
+}
+
+function shouldUpdateHumanName(
+  existingName: string | undefined,
+  email: string | undefined,
+): boolean {
+  const current = existingName?.trim() ?? "";
+  if (!current) {
+    return true;
+  }
+
+  if (email && normalizeEmail(current) === normalizeEmail(email)) {
+    return true;
+  }
+
+  return current.includes("@");
+}
+
+function shouldUpdateHumanEmail(
+  existingEmail: string | undefined,
+  email: string | undefined,
+): boolean {
+  return Boolean(normalizeEmail(email) && !normalizeEmail(existingEmail));
+}
+
+function normalizeEmail(value: string | undefined | null): string | undefined {
+  const email = value?.trim().toLowerCase();
+  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return undefined;
+  }
+
+  return email;
+}
+
+function normalizeCompanyName(
+  value: string | undefined | null,
+): string | undefined {
+  const name = value?.trim().replace(/\s+/g, " ");
+  if (!name || name.length < 2 || name.length > 80) {
+    return undefined;
+  }
+
+  if (name.includes("@") || /^https?:\/\//i.test(name)) {
+    return undefined;
+  }
+
+  return name;
+}
+
+function normalizeName(value: string): string {
+  return value
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+function tokenizeName(value: string): string[] {
+  return normalizeName(value)
+    .split(" ")
+    .filter((token) => token.length > 1);
+}
+
+function stringCell(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}

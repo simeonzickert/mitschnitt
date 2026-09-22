@@ -1,0 +1,11 @@
+[package]
+name = "mp3"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anlg-audio-utils = { workspace = true }
+hound = { workspace = true }
+mp3lame-encoder = { workspace = true }
+tempfile = { workspace = true }
+thiserror = { workspace = true }

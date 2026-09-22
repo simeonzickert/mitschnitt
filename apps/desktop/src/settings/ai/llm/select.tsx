@@ -1,0 +1,663 @@
+import { Trans, useLingui } from "@lingui/react/macro";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMemo, useRef, useState } from "react";
+
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectLabel,
+  SelectSeparator,
+  SelectTrigger,
+  SelectValue,
+} from "@anlg/ui/components/ui/select";
+import { cn } from "@anlg/utils";
+
+import { useLlmSettings } from "./context";
+import { HealthStatusIndicator, useConnectionHealth } from "./health";
+import {
+  getDefaultLlmSelection,
+  getPreferredProviderModel,
+  isSameModelSelection,
+  shouldShowMissingModelWarning,
+} from "./selection";
+import { type Provider, PROVIDERS } from "./shared";
+import {
+  isSubscriptionProviderId,
+  listSubscriptionModels,
+} from "./subscriptions";
+
+import {
+  providerRowId,
+  ProviderIconSlot,
+  useProviderAvailability,
+} from "~/settings/ai/shared";
+import { getProviderSelectionBlockers } from "~/settings/ai/shared/eligibility";
+import { listAnthropicModels } from "~/settings/ai/shared/list-anthropic";
+import { listAppleFoundationModels } from "~/settings/ai/shared/list-apple-foundation";
+import { listAzureAIModels } from "~/settings/ai/shared/list-azure-ai";
+import { listAzureOpenAIModels } from "~/settings/ai/shared/list-azure-openai";
+import { listCloudflareWorkersAIModels } from "~/settings/ai/shared/list-cloudflare-workers-ai";
+import {
+  type InputModality,
+  type ListModelsResult,
+  removeNonStreamingModels,
+} from "~/settings/ai/shared/list-common";
+import { listGoogleModels } from "~/settings/ai/shared/list-google";
+import { listLMStudioModels } from "~/settings/ai/shared/list-lmstudio";
+import { listMistralModels } from "~/settings/ai/shared/list-mistral";
+import { listOllamaModels } from "~/settings/ai/shared/list-ollama";
+import {
+  listGenericModels,
+  listOpenAIModels,
+} from "~/settings/ai/shared/list-openai";
+import { listOpenRouterModels } from "~/settings/ai/shared/list-openrouter";
+import { listUnslothModels } from "~/settings/ai/shared/list-unsloth";
+import { ModelCombobox } from "~/settings/ai/shared/model-combobox";
+import { PersistAiSelection } from "~/settings/ai/shared/persist-selection";
+import { groupProviders } from "~/settings/ai/shared/provider-groups";
+import { ProviderListToggle } from "~/settings/ai/shared/provider-list-toggle";
+import {
+  getConfiguredProviderIds,
+  getConfiguredProviders,
+  getVisibleModelSelection,
+} from "~/settings/ai/shared/selection";
+import { useAiProvidersState } from "~/settings/providers";
+import { setSettingValues, useSettingsReady } from "~/settings/queries";
+import { useConfigValues } from "~/shared/config";
+import { SettingsAlertToast } from "~/shared/ui/settings-alert";
+
+// Die sechs gebraeuchlichen Anbieter stehen oben, der lange Rest steckt
+// hinter "Weitere". Es wird kein Anbieter entfernt, nur einsortiert: die
+// flache Liste aus ~30 Eintraegen ist fuer Erstnutzer nicht lesbar.
+export const LLM_PRIMARY_PROVIDER_IDS = [
+  "anthropic",
+  "openai",
+  "openrouter",
+  "google_generative_ai",
+  "groq",
+  "custom",
+] as const;
+
+function ProviderOption({
+  provider,
+  configured,
+}: {
+  provider: Provider;
+  configured: boolean;
+}) {
+  return (
+    <SelectItem
+      value={provider.id}
+      disabled={!configured}
+      className={cn([
+        "data-disabled:text-muted-foreground data-disabled:!opacity-100",
+        !configured && "text-muted-foreground",
+      ])}
+    >
+      <div className="flex flex-col gap-0.5">
+        <div className="flex items-center gap-2">
+          <ProviderIconSlot>{provider.icon}</ProviderIconSlot>
+          <span>{provider.displayName}</span>
+        </div>
+      </div>
+    </SelectItem>
+  );
+}
+
+export function SelectProviderAndModel() {
+  const { t } = useLingui();
+  const { providers: configuredProviders, isReady: providerSettingsReady } =
+    useConfiguredMapping();
+  const settingsReady = useSettingsReady();
+  const queryClient = useQueryClient();
+  const { setAccordionValue } = useLlmSettings();
+  const [pendingSelection, setPendingSelection] = useState<{
+    provider: string;
+    model: string;
+    originProvider: string | undefined;
+    originModel: string | undefined;
+  } | null>(null);
+  const [isResolvingProvider, setIsResolvingProvider] = useState(false);
+  const [showAllProviders, setShowAllProviders] = useState(false);
+
+  const { current_llm_model, current_llm_provider } = useConfigValues([
+    "current_llm_model",
+    "current_llm_provider",
+  ] as const);
+  const selectedProviderConfigured = current_llm_provider
+    ? (configuredProviders[current_llm_provider]?.configured ?? false)
+    : false;
+  const visibleSelection = getVisibleModelSelection(
+    current_llm_provider,
+    current_llm_model,
+    selectedProviderConfigured,
+  );
+  const providerOptions = getConfiguredProviders(
+    PROVIDERS,
+    configuredProviders,
+  );
+  const configuredProviderIds = getConfiguredProviderIds(
+    PROVIDERS,
+    configuredProviders,
+    current_llm_provider,
+  );
+  const pendingSelectionSettled =
+    pendingSelection &&
+    isSameModelSelection(
+      current_llm_provider,
+      current_llm_model,
+      pendingSelection.provider,
+      pendingSelection.model,
+    );
+  if (pendingSelectionSettled) {
+    setPendingSelection(null);
+  }
+  const activePendingSelection =
+    pendingSelection &&
+    !pendingSelectionSettled &&
+    isSameModelSelection(
+      current_llm_provider,
+      current_llm_model,
+      pendingSelection.originProvider,
+      pendingSelection.originModel,
+    )
+      ? pendingSelection
+      : null;
+
+  const lastSelectedModelsRef = useRef<Record<string, string>>(
+    current_llm_provider && current_llm_model
+      ? { [current_llm_provider]: current_llm_model }
+      : {},
+  );
+  const selectionRequestRef = useRef(0);
+
+  const persistSelection = (
+    provider: string,
+    model: string,
+    requestId: number,
+  ) => {
+    void setSettingValues({
+      current_llm_provider: provider,
+      current_llm_model: model,
+    }).catch((error) => {
+      console.error("[settings] failed to update LLM selection", error);
+      if (selectionRequestRef.current === requestId) {
+        setPendingSelection(null);
+      }
+    });
+  };
+
+  const rememberModel = (provider?: string, model?: string) => {
+    if (!provider || model === undefined) {
+      return;
+    }
+
+    lastSelectedModelsRef.current[provider] = model;
+  };
+
+  const getCachedModels = (provider: string) => {
+    const status = configuredProviders[provider];
+    if (!status?.listModels) {
+      return [];
+    }
+
+    return (
+      queryClient.getQueryData<ListModelsResult>([
+        "models",
+        provider,
+        status.listModels,
+      ])?.models ?? []
+    );
+  };
+
+  const fetchModels = async (provider: string) => {
+    const status = configuredProviders[provider];
+    const listModels = status?.listModels;
+    if (!listModels) {
+      return [];
+    }
+
+    const result = await queryClient.fetchQuery({
+      queryKey: ["models", provider, listModels],
+      queryFn: async () => await listModels(),
+      retry: 3,
+      retryDelay: 300,
+      staleTime: 1000 * 2,
+    });
+
+    return result.models;
+  };
+
+  const needsDefaultSelection = !(
+    visibleSelection.provider && visibleSelection.model
+  );
+  const defaultSelectionQuery = useQuery({
+    queryKey: [
+      "default-ai-selection",
+      "llm",
+      current_llm_provider ?? "",
+      current_llm_model ?? "",
+      configuredProviderIds,
+    ],
+    queryFn: async () =>
+      await getDefaultLlmSelection(
+        configuredProviderIds,
+        current_llm_provider,
+        current_llm_model,
+        fetchModels,
+      ),
+    enabled:
+      !activePendingSelection &&
+      providerSettingsReady &&
+      needsDefaultSelection &&
+      configuredProviderIds.length > 0,
+    retry: false,
+    staleTime: Infinity,
+  });
+  const defaultSelection = needsDefaultSelection
+    ? defaultSelectionQuery.data
+    : null;
+  const effectiveSelection = activePendingSelection
+    ? {
+        provider: activePendingSelection.provider,
+        model: activePendingSelection.model,
+      }
+    : (defaultSelection ?? visibleSelection);
+
+  const health = useConnectionHealth();
+  const isConfigured = !!(
+    effectiveSelection.provider && effectiveSelection.model
+  );
+  const hasError =
+    isConfigured && !activePendingSelection && health.status === "error";
+  const isResolvingSelection =
+    isResolvingProvider || defaultSelectionQuery.isFetching;
+  const showMissingModelWarning = shouldShowMissingModelWarning({
+    isConfigured,
+    isResolvingSelection,
+    providerSettingsReady,
+    settingsReady,
+  });
+  const alertDescription = showMissingModelWarning
+    ? t`Choose a language model for summaries and chat.`
+    : providerSettingsReady &&
+        settingsReady &&
+        !isResolvingSelection &&
+        hasError
+      ? health.message
+      : undefined;
+
+  const handleProviderChange = (provider: string) => {
+    const requestId = ++selectionRequestRef.current;
+
+    const status = configuredProviders[provider];
+    if (!status?.listModels) {
+      setAccordionValue(provider);
+    }
+
+    rememberModel(current_llm_provider, current_llm_model);
+    const originSelection = {
+      originProvider: current_llm_provider,
+      originModel: current_llm_model,
+    };
+    setPendingSelection({ provider, model: "", ...originSelection });
+    setIsResolvingProvider(false);
+
+    const nextModel = getPreferredProviderModel(
+      lastSelectedModelsRef.current[provider],
+      getCachedModels(provider),
+      { allowSavedModelWithoutChoices: provider === "custom" },
+    );
+
+    if (nextModel) {
+      setPendingSelection({ provider, model: nextModel, ...originSelection });
+      rememberModel(provider, nextModel);
+      persistSelection(provider, nextModel, requestId);
+      return;
+    }
+
+    setIsResolvingProvider(true);
+    void (async () => {
+      let models: string[];
+      try {
+        models = await fetchModels(provider);
+      } catch {
+        if (selectionRequestRef.current === requestId) {
+          setIsResolvingProvider(false);
+          if (provider !== "custom") {
+            setPendingSelection(null);
+          }
+        }
+        return;
+      }
+      const resolvedModel = getPreferredProviderModel(
+        lastSelectedModelsRef.current[provider],
+        models,
+        { allowSavedModelWithoutChoices: provider === "custom" },
+      );
+
+      if (selectionRequestRef.current !== requestId) {
+        return;
+      }
+
+      setIsResolvingProvider(false);
+      if (!resolvedModel) {
+        if (provider !== "custom") {
+          setPendingSelection(null);
+        }
+        return;
+      }
+
+      setPendingSelection({
+        provider,
+        model: resolvedModel,
+        ...originSelection,
+      });
+      rememberModel(provider, resolvedModel);
+      persistSelection(provider, resolvedModel, requestId);
+    })();
+  };
+
+  const handleModelChange = (model: string) => {
+    if (!effectiveSelection.provider) {
+      return;
+    }
+
+    const requestId = ++selectionRequestRef.current;
+    rememberModel(effectiveSelection.provider, model);
+    setPendingSelection({
+      provider: effectiveSelection.provider,
+      model,
+      originProvider: current_llm_provider,
+      originModel: current_llm_model,
+    });
+    setIsResolvingProvider(false);
+    persistSelection(effectiveSelection.provider, model, requestId);
+  };
+
+  const groups = groupProviders(providerOptions, LLM_PRIMARY_PROVIDER_IDS, {
+    selectedId: effectiveSelection.provider,
+    configuredIds: configuredProviderIds,
+  });
+
+  return (
+    <div className="flex flex-col gap-4">
+      {defaultSelection && !activePendingSelection ? (
+        <PersistAiSelection
+          key={`llm:${defaultSelection.provider}:${defaultSelection.model}`}
+          type="llm"
+          provider={defaultSelection.provider}
+          model={defaultSelection.model}
+        />
+      ) : null}
+      <SettingsAlertToast
+        id="llm-settings-alert"
+        description={alertDescription}
+        variant={hasError ? "error" : "warning"}
+        lifecycle="condition-bound"
+      />
+
+      <h3 className="text-md font-sans font-semibold">
+        <Trans>Model being used</Trans>
+      </h3>
+      <div className="flex flex-row items-center gap-4">
+        <div className="min-w-0 flex-2" data-llm-provider-selector>
+          <Select
+            value={effectiveSelection.provider}
+            onValueChange={handleProviderChange}
+          >
+            <SelectTrigger className="bg-card shadow-none focus:ring-0">
+              <SelectValue placeholder={t`Select a provider`} />
+            </SelectTrigger>
+            <SelectContent>
+              {groups.primary.map((provider) => (
+                <ProviderOption
+                  key={provider.id}
+                  provider={provider}
+                  configured={
+                    configuredProviders[provider.id]?.configured ?? false
+                  }
+                />
+              ))}
+              {!showAllProviders
+                ? groups.pinned.map((provider) => (
+                    <ProviderOption
+                      key={provider.id}
+                      provider={provider}
+                      configured={
+                        configuredProviders[provider.id]?.configured ?? false
+                      }
+                    />
+                  ))
+                : null}
+              {groups.others.length > 0 ? (
+                <>
+                  <SelectSeparator />
+                  <ProviderListToggle
+                    expanded={showAllProviders}
+                    onToggle={() => setShowAllProviders((value) => !value)}
+                  />
+                  {showAllProviders ? (
+                    <SelectGroup>
+                      <SelectLabel>{t`More providers`}</SelectLabel>
+                      {groups.others.map((provider) => (
+                        <ProviderOption
+                          key={provider.id}
+                          provider={provider}
+                          configured={
+                            configuredProviders[provider.id]?.configured ??
+                            false
+                          }
+                        />
+                      ))}
+                    </SelectGroup>
+                  ) : null}
+                </>
+              ) : null}
+            </SelectContent>
+          </Select>
+        </div>
+
+        <span className="text-muted-foreground">/</span>
+
+        <div className="min-w-0 flex-3">
+          <ModelCombobox
+            providerId={effectiveSelection.provider}
+            value={effectiveSelection.model}
+            onChange={handleModelChange}
+            disabled={!effectiveSelection.provider}
+            listModels={
+              effectiveSelection.provider
+                ? configuredProviders[effectiveSelection.provider]?.listModels
+                : undefined
+            }
+            isConfigured={isConfigured && health.status === "success"}
+            suffix={isConfigured ? <HealthStatusIndicator /> : undefined}
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+type ProviderStatus = {
+  configured: boolean;
+  availabilityPending?: boolean;
+  listModels?: () => Promise<ListModelsResult>;
+};
+
+type ProviderConfig = {
+  base_url?: unknown;
+  api_key?: unknown;
+};
+
+const GOOGLE_VERTEX_AI_MODELS = [
+  "google/gemini-3.6-flash",
+  "google/gemini-3.5-flash-lite",
+  "google/gemini-3.1-pro-preview",
+  "google/gemini-3.5-flash",
+  "google/gemini-3-flash-preview",
+  "google/gemini-3.1-flash-lite",
+] as const;
+
+export function getLlmProviderStatus({
+  provider,
+  config,
+  isAvailable,
+}: {
+  provider: Provider;
+  config?: ProviderConfig;
+  isAvailable?: boolean;
+}): ProviderStatus {
+  const baseUrl = String(config?.base_url || provider.baseUrl || "").trim();
+  const apiKey = String(config?.api_key || "").trim();
+
+  const eligible =
+    getProviderSelectionBlockers(provider.requirements, {
+      config: { base_url: baseUrl, api_key: apiKey },
+    }).length === 0;
+
+  if (!eligible) {
+    return { configured: false };
+  }
+
+  if (provider.checkAvailability) {
+    if (isAvailable === undefined) {
+      return { configured: false, availabilityPending: true };
+    }
+    if (!isAvailable) {
+      return { configured: false };
+    }
+  }
+
+  if (provider.id === "anarlog") {
+    const result: ListModelsResult = {
+      models: ["Auto"],
+      ignored: [],
+      metadata: {
+        Auto: {
+          input_modalities: ["text", "image"] as InputModality[],
+        },
+      },
+    };
+    return { configured: true, listModels: async () => result };
+  }
+
+  let listModelsFunc: () => Promise<ListModelsResult>;
+
+  switch (provider.id) {
+    case "openai":
+      listModelsFunc = () => listOpenAIModels(baseUrl, apiKey);
+      break;
+    case "cohere":
+      listModelsFunc = () =>
+        listGenericModels(baseUrl, apiKey, { filterDateSnapshots: false });
+      break;
+    case "cloudflare_workers_ai":
+      listModelsFunc = () => listCloudflareWorkersAIModels(baseUrl, apiKey);
+      break;
+    case "anthropic":
+      listModelsFunc = () => listAnthropicModels(baseUrl, apiKey);
+      break;
+    case "openrouter":
+      listModelsFunc = () => listOpenRouterModels(baseUrl, apiKey);
+      break;
+    case "google_generative_ai":
+      listModelsFunc = () => listGoogleModels(baseUrl, apiKey);
+      break;
+    case "google_vertex_ai":
+      listModelsFunc = async () => ({
+        models: [...GOOGLE_VERTEX_AI_MODELS],
+        ignored: [],
+        metadata: Object.fromEntries(
+          GOOGLE_VERTEX_AI_MODELS.map((model) => [
+            model,
+            { input_modalities: ["text", "image"] as InputModality[] },
+          ]),
+        ),
+      });
+      break;
+    case "mistral":
+      listModelsFunc = () => listMistralModels(baseUrl, apiKey);
+      break;
+    case "azure_openai":
+      listModelsFunc = () => listAzureOpenAIModels(baseUrl, apiKey);
+      break;
+    case "azure_ai":
+      listModelsFunc = () => listAzureAIModels(baseUrl, apiKey);
+      break;
+    case "ollama":
+      listModelsFunc = () => listOllamaModels(baseUrl, apiKey);
+      break;
+    case "apple_foundation":
+      listModelsFunc = listAppleFoundationModels;
+      break;
+    case "lmstudio":
+      listModelsFunc = () => listLMStudioModels(baseUrl, apiKey);
+      break;
+    case "unsloth":
+      listModelsFunc = () => listUnslothModels(baseUrl, apiKey);
+      break;
+    case "custom":
+      listModelsFunc = () => listGenericModels(baseUrl, apiKey);
+      break;
+    default:
+      if (isSubscriptionProviderId(provider.id)) {
+        const subscriptionId = provider.id;
+        listModelsFunc = () =>
+          listSubscriptionModels(subscriptionId, baseUrl, apiKey);
+      } else {
+        listModelsFunc = () => listGenericModels(baseUrl, apiKey);
+      }
+  }
+
+  return {
+    configured: true,
+    listModels: async () => removeNonStreamingModels(await listModelsFunc()),
+  };
+}
+
+function useConfiguredMapping(): {
+  providers: Record<string, ProviderStatus>;
+  isReady: boolean;
+} {
+  const availability = useProviderAvailability("llm", PROVIDERS);
+  const { current_llm_provider } = useConfigValues([
+    "current_llm_provider",
+  ] as const);
+  const { providers: configuredProviders, isReady } =
+    useAiProvidersState("llm");
+
+  const mapping = useMemo(() => {
+    return Object.fromEntries(
+      PROVIDERS.map((provider: Provider) => {
+        const config = configuredProviders[providerRowId("llm", provider.id)];
+        // The selected provider bypasses the reachability gate: a temporarily
+        // stopped local server should surface as a connection error, not
+        // silently re-persist the selection to another provider.
+        const isAvailable = provider.checkAvailability
+          ? provider.id === current_llm_provider || availability[provider.id]
+          : undefined;
+        return [
+          provider.id,
+          getLlmProviderStatus({
+            provider,
+            config,
+            isAvailable,
+          }),
+        ];
+      }),
+    ) as Record<string, ProviderStatus>;
+  }, [configuredProviders, availability, current_llm_provider]);
+
+  return {
+    providers: mapping,
+    isReady:
+      isReady &&
+      Object.values(mapping).every(
+        (status) => status.availabilityPending !== true,
+      ),
+  };
+}

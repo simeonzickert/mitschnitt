@@ -1,0 +1,821 @@
+use std::{collections::HashMap, path::PathBuf, sync::Arc};
+
+use ractor::{ActorRef, call_t, registry};
+use tauri_specta::Event;
+
+use tauri::{Manager, Runtime};
+
+use anlg_model_downloader::{DownloadStatus, ModelDownloadManager, ModelDownloaderRuntime};
+
+#[cfg(feature = "whisper-cpp")]
+use crate::server::internal;
+use crate::{
+    download_pollers::{DownloadPoller, DownloadPollers},
+    model::LocalModel,
+    server::{ServerInfo, ServerStatus, ServerType, supervisor},
+    types::DownloadProgressPayload,
+};
+
+struct TauriModelRuntime<R: Runtime> {
+    app_handle: tauri::AppHandle<R>,
+}
+
+impl<R: Runtime> ModelDownloaderRuntime<LocalModel> for TauriModelRuntime<R> {
+    fn models_base(&self) -> Result<PathBuf, anlg_model_downloader::Error> {
+        use tauri_plugin_settings::SettingsPluginExt;
+        Ok(self
+            .app_handle
+            .settings()
+            .global_base()
+            .map(|base| base.join("models").into_std_path_buf())
+            .unwrap_or_else(|_| dirs::data_dir().unwrap_or_default().join("models")))
+    }
+
+    fn emit_progress(&self, model: &LocalModel, status: anlg_model_downloader::DownloadStatus) {
+        let payload = DownloadProgressPayload {
+            model: model.clone(),
+            status,
+        };
+        let _ = payload.emit(&self.app_handle);
+    }
+}
+
+pub fn create_model_downloader<R: Runtime>(
+    app_handle: &tauri::AppHandle<R>,
+) -> ModelDownloadManager<LocalModel> {
+    let runtime = Arc::new(TauriModelRuntime {
+        app_handle: app_handle.clone(),
+    });
+    ModelDownloadManager::new(runtime)
+}
+
+pub struct LocalStt<'a, R: Runtime, M: Manager<R>> {
+    manager: &'a M,
+    _runtime: std::marker::PhantomData<fn() -> R>,
+}
+
+impl<'a, R: Runtime, M: Manager<R>> LocalStt<'a, R, M> {
+    fn ensure_stt_model(model: &LocalModel) -> Result<(), crate::Error> {
+        match model {
+            LocalModel::Soniqo(_) | LocalModel::AppleSpeech(_) | LocalModel::Whisper(_) => {
+                if model.is_available_on_current_platform() {
+                    Ok(())
+                } else {
+                    Err(crate::Error::UnsupportedPlatform)
+                }
+            }
+            LocalModel::GgufLlm(_) => Err(crate::Error::UnsupportedModelType),
+        }
+    }
+
+    pub fn models_dir(&self) -> PathBuf {
+        use tauri_plugin_settings::SettingsPluginExt;
+        self.manager
+            .settings()
+            .global_base()
+            .map(|base| base.join("models").join("stt").into_std_path_buf())
+            .unwrap_or_else(|_| {
+                dirs::data_dir()
+                    .unwrap_or_default()
+                    .join("models")
+                    .join("stt")
+            })
+    }
+
+    pub async fn soniqo_model_dir(&self, model: &LocalModel) -> Result<PathBuf, crate::Error> {
+        match model {
+            LocalModel::Soniqo(model) => {
+                let model = *model;
+                run_soniqo_blocking(
+                    move || anlg_transcribe_soniqo::model_cache_dir(model),
+                    crate::Error::ServerStartFailed,
+                )
+                .await
+            }
+            _ => Err(crate::Error::UnsupportedModelType),
+        }
+    }
+
+    pub async fn get_supervisor(&self) -> Result<supervisor::SupervisorRef, crate::Error> {
+        let state = self.manager.state::<crate::SharedState>();
+        let guard = state.lock().await;
+        guard
+            .stt_supervisor
+            .clone()
+            .ok_or(crate::Error::SupervisorNotFound)
+    }
+
+    async fn download_pollers(&self) -> DownloadPollers {
+        let state = self.manager.state::<crate::SharedState>();
+        state.lock().await.download_pollers.clone()
+    }
+
+    pub async fn is_model_downloaded(&self, model: &LocalModel) -> Result<bool, crate::Error> {
+        Self::ensure_stt_model(model)?;
+
+        if let LocalModel::Soniqo(model) = model {
+            return Ok(soniqo_download_state(*model).await?.status == "ready");
+        }
+
+        if matches!(model, LocalModel::AppleSpeech(_)) {
+            return Ok(apple_speech_download_state().await?.status == "ready");
+        }
+
+        let downloader = {
+            let state = self.manager.state::<crate::SharedState>();
+            let guard = state.lock().await;
+            guard.model_downloader.clone()
+        };
+        Ok(downloader.is_downloaded(model).await?)
+    }
+
+    fn ensure_custom_model_supported() -> Result<(), crate::Error> {
+        if cfg!(all(
+            target_os = "macos",
+            target_arch = "aarch64",
+            feature = "whisper-cpp"
+        )) {
+            Ok(())
+        } else {
+            Err(crate::Error::UnsupportedPlatform)
+        }
+    }
+
+    pub fn inspect_custom_model_path(
+        &self,
+        path: &str,
+    ) -> Result<crate::CustomSttModelInfo, crate::Error> {
+        Self::ensure_custom_model_supported()?;
+        crate::custom_model::inspect_custom_model_path(path).map(|(_, info)| info)
+    }
+
+    #[tracing::instrument(skip_all)]
+    pub async fn start_server_for_path(&self, path: &str) -> Result<String, crate::Error> {
+        Self::ensure_custom_model_supported()?;
+        let (_model_path, _) = crate::custom_model::inspect_custom_model_path(path)?;
+
+        #[cfg(feature = "whisper-cpp")]
+        {
+            let canonical_path = _model_path.to_string_lossy().into_owned();
+            if let Some(info) = internal_health().await
+                && info.custom_model_path.as_deref() == Some(canonical_path.as_str())
+            {
+                return info.url.ok_or_else(|| {
+                    crate::Error::ServerStartFailed("missing_health_url".to_string())
+                });
+            }
+
+            let probe_path = _model_path.clone();
+            tokio::task::spawn_blocking(move || {
+                anlg_whisper_local::LoadedWhisper::builder()
+                    .model_path(probe_path.to_string_lossy().into_owned())
+                    .build()
+                    .map(|_| ())
+                    .map_err(|error| crate::Error::WhisperModelLoadFailed(error.to_string()))
+            })
+            .await
+            .map_err(|error| crate::Error::WhisperModelLoadFailed(error.to_string()))??;
+
+            let supervisor = self.get_supervisor().await?;
+            supervisor::stop_all_stt_servers(&supervisor)
+                .await
+                .map_err(|error| crate::Error::ServerStopFailed(error.to_string()))?;
+
+            start_internal_server(&supervisor, _model_path, None).await
+        }
+
+        #[cfg(not(feature = "whisper-cpp"))]
+        Err(crate::Error::UnsupportedPlatform)
+    }
+
+    #[tracing::instrument(skip_all)]
+    pub async fn start_server(&self, model: LocalModel) -> Result<String, crate::Error> {
+        Self::ensure_stt_model(&model)?;
+
+        if let LocalModel::Soniqo(soniqo_model) = model {
+            if soniqo_download_state(soniqo_model).await?.status != "ready" {
+                return Err(crate::Error::ModelNotDownloaded);
+            }
+
+            let supervisor = self.get_supervisor().await?;
+            supervisor::stop_all_stt_servers(&supervisor)
+                .await
+                .map_err(|e| crate::Error::ServerStopFailed(e.to_string()))?;
+
+            return Ok(anlg_transcribe_soniqo::LOCAL_BASE_URL.to_string());
+        }
+
+        // Apple Speech runs in a system daemon, so there is no server to spawn — only
+        // the locale reservation macOS requires before a session can start.
+        if matches!(model, LocalModel::AppleSpeech(_)) {
+            if apple_speech_download_state().await?.status != "ready" {
+                return Err(crate::Error::ModelNotDownloaded);
+            }
+
+            let supervisor = self.get_supervisor().await?;
+            supervisor::stop_all_stt_servers(&supervisor)
+                .await
+                .map_err(|e| crate::Error::ServerStopFailed(e.to_string()))?;
+
+            return Ok(anlg_transcribe_speechanalyzer::LOCAL_BASE_URL.to_string());
+        }
+
+        let server_type = match &model {
+            LocalModel::Whisper(_) => ServerType::Internal,
+            LocalModel::Soniqo(_) | LocalModel::AppleSpeech(_) | LocalModel::GgufLlm(_) => {
+                return Err(crate::Error::UnsupportedModelType);
+            }
+        };
+
+        // Der Typ steht ausdruecklich da: ohne das Feature `whisper-cpp` ist der
+        // einzige Arm `None`, und seit dem Argmax-Ausbau (1a04040e2f) gibt es
+        // keinen zweiten Arm mehr, aus dem rustc ihn ableiten koennte. Der
+        // Workspace-Lauf baut dieses Plugin ueber tauri-plugin-transcription
+        // OHNE das Feature und brach mit E0282 ab; `cargo test -p desktop`
+        // merkte nichts, weil desktop das Feature ("metal") mitbringt.
+        let current_info: Option<ServerInfo> = match server_type {
+            #[cfg(feature = "whisper-cpp")]
+            ServerType::Internal => internal_health().await,
+            #[cfg(not(feature = "whisper-cpp"))]
+            ServerType::Internal => None,
+        };
+
+        if let Some(info) = current_info.as_ref()
+            && info.model.as_ref() == Some(&model)
+        {
+            if let Some(url) = info.url.clone() {
+                return Ok(url);
+            }
+
+            return Err(crate::Error::ServerStartFailed(
+                "missing_health_url".to_string(),
+            ));
+        }
+
+        let supervisor = self.get_supervisor().await?;
+
+        supervisor::stop_all_stt_servers(&supervisor)
+            .await
+            .map_err(|e| crate::Error::ServerStopFailed(e.to_string()))?;
+
+        match server_type {
+            ServerType::Internal => {
+                #[cfg(feature = "whisper-cpp")]
+                {
+                    let whisper_model = match model {
+                        LocalModel::Whisper(m) => m,
+                        _ => return Err(crate::Error::UnsupportedModelType),
+                    };
+                    let model_path = self.models_dir().join(whisper_model.file_name());
+                    start_internal_server(&supervisor, model_path, Some(whisper_model)).await
+                }
+                #[cfg(not(feature = "whisper-cpp"))]
+                Err(crate::Error::UnsupportedModelType)
+            }
+        }
+    }
+
+    #[tracing::instrument(skip_all)]
+    pub async fn stop_server(&self, server_type: Option<ServerType>) -> Result<bool, crate::Error> {
+        let supervisor = self.get_supervisor().await?;
+
+        match server_type {
+            Some(t) => {
+                supervisor::stop_stt_server(&supervisor, t)
+                    .await
+                    .map_err(|e| crate::Error::ServerStopFailed(e.to_string()))?;
+                Ok(true)
+            }
+            None => {
+                supervisor::stop_all_stt_servers(&supervisor)
+                    .await
+                    .map_err(|e| crate::Error::ServerStopFailed(e.to_string()))?;
+                Ok(true)
+            }
+        }
+    }
+
+    #[tracing::instrument(skip_all)]
+    pub async fn get_server_for_model(
+        &self,
+        model: &LocalModel,
+    ) -> Result<Option<ServerInfo>, crate::Error> {
+        Self::ensure_stt_model(model)?;
+
+        if let LocalModel::Soniqo(soniqo_model) = model {
+            let state = soniqo_download_state(*soniqo_model).await?;
+            let downloaded = state.status == "ready";
+            let downloading = state.status == "downloading";
+
+            return Ok(Some(ServerInfo {
+                url: downloaded.then(|| anlg_transcribe_soniqo::LOCAL_BASE_URL.to_string()),
+                status: if downloaded {
+                    ServerStatus::Ready
+                } else if downloading {
+                    ServerStatus::Loading
+                } else {
+                    ServerStatus::Unreachable
+                },
+                model: Some(model.clone()),
+                custom_model_path: None,
+            }));
+        }
+
+        if matches!(model, LocalModel::AppleSpeech(_)) {
+            let state = apple_speech_download_state().await?;
+            let ready = state.status == "ready";
+
+            return Ok(Some(ServerInfo {
+                url: ready.then(|| anlg_transcribe_speechanalyzer::LOCAL_BASE_URL.to_string()),
+                status: if ready {
+                    ServerStatus::Ready
+                } else if state.status == "downloading" {
+                    ServerStatus::Loading
+                } else {
+                    ServerStatus::Unreachable
+                },
+                model: Some(model.clone()),
+                custom_model_path: None,
+            }));
+        }
+
+        let server_type = match model {
+            LocalModel::Whisper(_) => ServerType::Internal,
+            LocalModel::Soniqo(_) | LocalModel::AppleSpeech(_) | LocalModel::GgufLlm(_) => {
+                return Err(crate::Error::UnsupportedModelType);
+            }
+        };
+
+        let info = match server_type {
+            #[cfg(feature = "whisper-cpp")]
+            ServerType::Internal => internal_health().await,
+            #[cfg(not(feature = "whisper-cpp"))]
+            ServerType::Internal => None,
+        };
+
+        Ok(info)
+    }
+
+    #[tracing::instrument(skip_all)]
+    pub async fn get_servers(&self) -> Result<HashMap<ServerType, ServerInfo>, crate::Error> {
+        #[cfg(feature = "whisper-cpp")]
+        let internal_info = internal_health().await.unwrap_or(ServerInfo {
+            url: None,
+            status: ServerStatus::Unreachable,
+            model: None,
+            custom_model_path: None,
+        });
+        #[cfg(not(feature = "whisper-cpp"))]
+        let internal_info = ServerInfo {
+            url: None,
+            status: ServerStatus::Unreachable,
+            model: None,
+            custom_model_path: None,
+        };
+
+        Ok([(ServerType::Internal, internal_info)]
+            .into_iter()
+            .collect())
+    }
+
+    #[tracing::instrument(skip_all)]
+    pub async fn download_model(&self, model: LocalModel) -> Result<(), crate::Error> {
+        Self::ensure_stt_model(&model)?;
+
+        if let LocalModel::Soniqo(soniqo_model) = model.clone() {
+            let pollers = self.download_pollers().await;
+            let Some(poller) = pollers.reserve(model.clone()) else {
+                return Ok(());
+            };
+            let Some(native_job) = poller.acquire_native_job().await else {
+                return Ok(());
+            };
+
+            run_soniqo_blocking_with_permit(
+                native_job,
+                move || anlg_transcribe_soniqo::start_model_download(soniqo_model),
+                crate::Error::ServerStartFailed,
+            )
+            .await?;
+
+            spawn_soniqo_progress_poller(
+                self.manager.app_handle().clone(),
+                model,
+                soniqo_model,
+                poller,
+            );
+            return Ok(());
+        }
+
+        if matches!(model, LocalModel::AppleSpeech(_)) {
+            let locale = apple_speech_settings_locale()?;
+            let pollers = self.download_pollers().await;
+            let Some(poller) = pollers.reserve(model.clone()) else {
+                return Ok(());
+            };
+            let Some(native_job) = poller.acquire_native_job().await else {
+                return Ok(());
+            };
+            run_apple_speech_blocking_with_permit(
+                native_job,
+                {
+                    let locale = locale.clone();
+                    move || anlg_transcribe_speechanalyzer::start_model_download(&locale)
+                },
+                crate::Error::ServerStartFailed,
+            )
+            .await?;
+
+            spawn_apple_speech_progress_poller(
+                self.manager.app_handle().clone(),
+                model,
+                locale,
+                poller,
+            );
+            return Ok(());
+        }
+
+        let downloader = {
+            let state = self.manager.state::<crate::SharedState>();
+            let guard = state.lock().await;
+            guard.model_downloader.clone()
+        };
+        downloader.download(&model).await?;
+        Ok(())
+    }
+
+    #[tracing::instrument(skip_all)]
+    pub async fn cancel_download(&self, model: LocalModel) -> Result<bool, crate::Error> {
+        Self::ensure_stt_model(&model)?;
+
+        if matches!(model, LocalModel::Soniqo(_) | LocalModel::AppleSpeech(_)) {
+            self.download_pollers().await.cancel(&model);
+            return Ok(false);
+        }
+
+        let downloader = {
+            let state = self.manager.state::<crate::SharedState>();
+            let guard = state.lock().await;
+            guard.model_downloader.clone()
+        };
+        Ok(downloader.cancel_download(&model).await?)
+    }
+
+    #[tracing::instrument(skip_all)]
+    pub async fn is_model_downloading(&self, model: &LocalModel) -> Result<bool, crate::Error> {
+        Self::ensure_stt_model(model)?;
+
+        if let LocalModel::Soniqo(model) = model {
+            return Ok(soniqo_download_state(*model).await?.status == "downloading");
+        }
+
+        if matches!(model, LocalModel::AppleSpeech(_)) {
+            return Ok(apple_speech_download_state().await?.status == "downloading");
+        }
+
+        let downloader = {
+            let state = self.manager.state::<crate::SharedState>();
+            let guard = state.lock().await;
+            guard.model_downloader.clone()
+        };
+        Ok(downloader.is_downloading(model).await)
+    }
+
+    #[tracing::instrument(skip_all)]
+    pub async fn delete_model(&self, model: &LocalModel) -> Result<(), crate::Error> {
+        Self::ensure_stt_model(model)?;
+
+        if let LocalModel::Soniqo(model) = model {
+            self.download_pollers()
+                .await
+                .cancel(&LocalModel::Soniqo(*model));
+            let model = *model;
+            return run_soniqo_blocking(
+                move || anlg_transcribe_soniqo::delete_model(model),
+                crate::Error::ServerStopFailed,
+            )
+            .await;
+        }
+
+        if matches!(model, LocalModel::AppleSpeech(_)) {
+            self.download_pollers().await.cancel(model);
+            let locale = apple_speech_settings_locale()?;
+            return run_apple_speech_blocking(
+                move || anlg_transcribe_speechanalyzer::release_locale(&locale),
+                crate::Error::ServerStopFailed,
+            )
+            .await;
+        }
+
+        let downloader = {
+            let state = self.manager.state::<crate::SharedState>();
+            let guard = state.lock().await;
+            guard.model_downloader.clone()
+        };
+        downloader.delete(model).await?;
+        Ok(())
+    }
+}
+
+async fn run_soniqo_blocking<T>(
+    task: impl FnOnce() -> anlg_transcribe_soniqo::Result<T> + Send + 'static,
+    map_error: fn(String) -> crate::Error,
+) -> Result<T, crate::Error>
+where
+    T: Send + 'static,
+{
+    tokio::task::spawn_blocking(task)
+        .await
+        .map_err(|e| map_error(e.to_string()))?
+        .map_err(|e| map_error(e.to_string()))
+}
+
+async fn run_soniqo_blocking_with_permit<T>(
+    native_job: tokio::sync::OwnedSemaphorePermit,
+    task: impl FnOnce() -> anlg_transcribe_soniqo::Result<T> + Send + 'static,
+    map_error: fn(String) -> crate::Error,
+) -> Result<T, crate::Error>
+where
+    T: Send + 'static,
+{
+    tokio::task::spawn_blocking(move || {
+        let _native_job = native_job;
+        task()
+    })
+    .await
+    .map_err(|e| map_error(e.to_string()))?
+    .map_err(|e| map_error(e.to_string()))
+}
+
+async fn soniqo_download_state(
+    model: anlg_transcribe_soniqo::SoniqoModel,
+) -> Result<anlg_transcribe_soniqo::ModelDownloadState, crate::Error> {
+    run_soniqo_blocking(
+        move || anlg_transcribe_soniqo::model_download_state(model),
+        crate::Error::ServerStartFailed,
+    )
+    .await
+}
+
+async fn run_apple_speech_blocking<T>(
+    task: impl FnOnce() -> anlg_transcribe_speechanalyzer::Result<T> + Send + 'static,
+    map_error: fn(String) -> crate::Error,
+) -> Result<T, crate::Error>
+where
+    T: Send + 'static,
+{
+    tokio::task::spawn_blocking(task)
+        .await
+        .map_err(|e| map_error(e.to_string()))?
+        .map_err(|e| map_error(e.to_string()))
+}
+
+async fn run_apple_speech_blocking_with_permit<T>(
+    native_job: tokio::sync::OwnedSemaphorePermit,
+    task: impl FnOnce() -> anlg_transcribe_speechanalyzer::Result<T> + Send + 'static,
+    map_error: fn(String) -> crate::Error,
+) -> Result<T, crate::Error>
+where
+    T: Send + 'static,
+{
+    tokio::task::spawn_blocking(move || {
+        let _native_job = native_job;
+        task()
+    })
+    .await
+    .map_err(|e| map_error(e.to_string()))?
+    .map_err(|e| map_error(e.to_string()))
+}
+
+fn apple_speech_settings_locale() -> Result<String, crate::Error> {
+    anlg_transcribe_speechanalyzer::settings_locale()
+        .map_err(|error| crate::Error::ServerStartFailed(error.to_string()))
+}
+
+async fn apple_speech_download_state()
+-> Result<anlg_transcribe_speechanalyzer::ModelDownloadState, crate::Error> {
+    let locale = match anlg_transcribe_speechanalyzer::settings_locale() {
+        Ok(locale) => locale,
+        Err(anlg_transcribe_speechanalyzer::Error::NoSupportedSystemLanguage) => {
+            return Ok(anlg_transcribe_speechanalyzer::ModelDownloadState {
+                status: "error".to_string(),
+                current_file: None,
+                progress_percent: None,
+                local_path: String::new(),
+                error: Some(
+                    anlg_transcribe_speechanalyzer::Error::NoSupportedSystemLanguage.to_string(),
+                ),
+            });
+        }
+        Err(anlg_transcribe_speechanalyzer::Error::UnsupportedPlatform) => {
+            return Ok(anlg_transcribe_speechanalyzer::ModelDownloadState {
+                status: "idle".to_string(),
+                current_file: None,
+                progress_percent: None,
+                local_path: String::new(),
+                error: None,
+            });
+        }
+        Err(error) => return Err(crate::Error::ServerStartFailed(error.to_string())),
+    };
+    run_apple_speech_blocking(
+        move || anlg_transcribe_speechanalyzer::model_download_state(&locale),
+        crate::Error::ServerStartFailed,
+    )
+    .await
+}
+
+fn spawn_apple_speech_progress_poller<R: Runtime>(
+    app_handle: tauri::AppHandle<R>,
+    model: LocalModel,
+    locale: String,
+    poller: DownloadPoller,
+) {
+    tokio::spawn(async move {
+        for _ in 0..7200 {
+            if poller.is_cancelled() {
+                return;
+            }
+
+            let Some(native_job) = poller.acquire_native_job().await else {
+                return;
+            };
+            let locale = locale.clone();
+            let status = tokio::task::spawn_blocking(move || {
+                let _native_job = native_job;
+                anlg_transcribe_speechanalyzer::model_download_state(&locale)
+            })
+            .await;
+
+            if poller.is_cancelled() {
+                return;
+            }
+
+            let download_status = match status {
+                Ok(Ok(state)) => match state.status.as_str() {
+                    "ready" => DownloadStatus::Completed,
+                    "error" => DownloadStatus::Failed(
+                        state
+                            .error
+                            .unwrap_or_else(|| "Apple Speech asset install failed".to_string()),
+                    ),
+                    _ => DownloadStatus::Downloading(state.progress_percent.unwrap_or(0)),
+                },
+                Ok(Err(error)) => DownloadStatus::Failed(error.to_string()),
+                Err(error) => DownloadStatus::Failed(error.to_string()),
+            };
+
+            let should_stop = matches!(
+                download_status,
+                DownloadStatus::Completed | DownloadStatus::Failed(_)
+            );
+            if let DownloadStatus::Failed(error) = &download_status {
+                tracing::error!(error, "apple_speech_asset_install_failed");
+            }
+            let _ = DownloadProgressPayload {
+                model: model.clone(),
+                status: download_status,
+            }
+            .emit(&app_handle);
+
+            if should_stop {
+                return;
+            }
+
+            tokio::select! {
+                _ = poller.cancelled() => return,
+                _ = tokio::time::sleep(std::time::Duration::from_millis(250)) => {}
+            }
+        }
+
+        tracing::error!("apple_speech_asset_install_timed_out");
+        let _ = DownloadProgressPayload {
+            model,
+            status: DownloadStatus::Failed("Apple Speech asset install timed out".to_string()),
+        }
+        .emit(&app_handle);
+    });
+}
+
+fn spawn_soniqo_progress_poller<R: Runtime>(
+    app_handle: tauri::AppHandle<R>,
+    model: LocalModel,
+    soniqo_model: anlg_transcribe_soniqo::SoniqoModel,
+    poller: DownloadPoller,
+) {
+    tokio::spawn(async move {
+        for _ in 0..7200 {
+            if poller.is_cancelled() {
+                return;
+            }
+
+            let Some(native_job) = poller.acquire_native_job().await else {
+                return;
+            };
+            let status = tokio::task::spawn_blocking(move || {
+                let _native_job = native_job;
+                anlg_transcribe_soniqo::model_download_state(soniqo_model)
+            })
+            .await;
+
+            if poller.is_cancelled() {
+                return;
+            }
+
+            let download_status = match status {
+                Ok(Ok(state)) => match state.status.as_str() {
+                    "ready" => DownloadStatus::Completed,
+                    "error" => DownloadStatus::Failed(
+                        state
+                            .error
+                            .unwrap_or_else(|| "Soniqo model download failed".to_string()),
+                    ),
+                    _ => DownloadStatus::Downloading(state.progress_percent.unwrap_or(0)),
+                },
+                Ok(Err(error)) => DownloadStatus::Failed(error.to_string()),
+                Err(error) => DownloadStatus::Failed(error.to_string()),
+            };
+
+            let should_stop = matches!(
+                download_status,
+                DownloadStatus::Completed | DownloadStatus::Failed(_)
+            );
+            if let DownloadStatus::Failed(error) = &download_status {
+                tracing::error!(
+                    model = soniqo_model.as_str(),
+                    error,
+                    "soniqo_model_download_failed"
+                );
+            }
+            let _ = DownloadProgressPayload {
+                model: model.clone(),
+                status: download_status,
+            }
+            .emit(&app_handle);
+
+            if should_stop {
+                return;
+            }
+
+            tokio::select! {
+                _ = poller.cancelled() => return,
+                _ = tokio::time::sleep(std::time::Duration::from_millis(250)) => {}
+            }
+        }
+
+        tracing::error!(
+            model = soniqo_model.as_str(),
+            "soniqo_model_download_timed_out"
+        );
+        let _ = DownloadProgressPayload {
+            model,
+            status: DownloadStatus::Failed("Soniqo model download timed out".to_string()),
+        }
+        .emit(&app_handle);
+    });
+}
+
+pub trait LocalSttPluginExt<R: Runtime> {
+    fn local_stt(&self) -> LocalStt<'_, R, Self>
+    where
+        Self: Manager<R> + Sized;
+}
+
+impl<R: Runtime, T: Manager<R>> LocalSttPluginExt<R> for T {
+    fn local_stt(&self) -> LocalStt<'_, R, Self>
+    where
+        Self: Sized,
+    {
+        LocalStt {
+            manager: self,
+            _runtime: std::marker::PhantomData,
+        }
+    }
+}
+
+#[cfg(feature = "whisper-cpp")]
+async fn start_internal_server(
+    supervisor: &supervisor::SupervisorRef,
+    model_path: PathBuf,
+    model: Option<anlg_whisper_local_model::WhisperModel>,
+) -> Result<String, crate::Error> {
+    supervisor::start_internal_stt(supervisor, internal::InternalSTTArgs { model, model_path })
+        .await
+        .map_err(|e| crate::Error::ServerStartFailed(e.to_string()))?;
+
+    internal_health()
+        .await
+        .and_then(|info| info.url)
+        .ok_or_else(|| crate::Error::ServerStartFailed("empty_health".to_string()))
+}
+
+#[cfg(feature = "whisper-cpp")]
+async fn internal_health() -> Option<ServerInfo> {
+    match registry::where_is(internal::InternalSTTActor::name()) {
+        Some(cell) => {
+            let actor: ActorRef<internal::InternalSTTMessage> = cell.into();
+            call_t!(actor, internal::InternalSTTMessage::GetHealth, 10 * 1000).ok()
+        }
+        None => None,
+    }
+}

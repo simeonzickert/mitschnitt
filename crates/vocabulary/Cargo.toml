@@ -1,0 +1,38 @@
+[package]
+name = "vocabulary"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+crc32fast = "1.4.2"
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+# Gemessen am 03.09.2026: mit Vorgabe-Merkmalen kaemen 18 neue Crates in den
+# Baum, ohne sie 14 (es fallen `onig`/`onig_sys` -- C-Bindings an Oniguruma --
+# sowie `indicatif`/`unit-prefix` weg). Wir brauchen weder Fortschrittsbalken
+# noch regexbasierten Vorzerleger: `tokenizer.json` benutzt `Metaspace`.
+tokenizers = { workspace = true }
+tracing = { workspace = true }
+
+# Die Tests gegen die ECHTEN Modelldateien. Ohne dieses Merkmal tragen sie
+# `#[ignore]` -- auf einer Kiste ohne geladenes Modell waere ein roter Lauf eine
+# Falschmeldung. Mit ihm laufen sie als gewoehnliche Tests mit:
+#
+#     cargo test -p vocabulary --features real-model
+#
+# Das ist besser als `-- --ignored`, weil letzteres auch
+# `print_the_split_of_every_term` mitnimmt -- eine Ausgabe fuer den Bericht,
+# kein Beweis. Der bleibt unbedingt ignoriert.
+#
+# Achtung fuer die Werkbank: `cargo test --workspace --all-features` schaltet
+# dieses Merkmal MIT an und wird auf einer Kiste ohne geladenes Parakeet-Modell
+# rot -- genau die Falschmeldung, die das `#[ignore]` vermeiden soll. Die
+# bestehende CI (`.github/workflows/desktop_ci.yaml`) ruft weder `--all-features`
+# noch dieses Merkmal, ist also nicht betroffen; wer es dort einschaltet, muss
+# das Modell mitbringen.
+[features]
+real-model = []
+
+[dev-dependencies]
+tempfile = { workspace = true }

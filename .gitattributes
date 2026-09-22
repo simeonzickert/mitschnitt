@@ -1,0 +1,6 @@
+* text=auto eol=lf
+apps/desktop/src-tauri/resources/llm.gguf filter=lfs diff=lfs merge=lfs -text
+
+# Fremder Quelltext bleibt byte-genau so, wie er vom Anbieter kommt --
+# die Lizenzaussage "unveraendert uebernommen" soll nachpruefbar bleiben.
+vendor/** -text

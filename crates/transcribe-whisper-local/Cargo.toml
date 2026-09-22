@@ -1,0 +1,51 @@
+[package]
+name = "transcribe-whisper-local"
+version = "0.1.0"
+edition = "2024"
+
+[features]
+default = []
+coreml = ["anlg-whisper-local/coreml"]
+directml = ["anlg-pyannote-local/directml"]
+cuda = ["anlg-whisper-local/cuda"]
+hipblas = ["anlg-whisper-local/hipblas"]
+openblas = ["anlg-whisper-local/openblas"]
+metal = ["anlg-whisper-local/metal"]
+vulkan = ["anlg-whisper-local/vulkan"]
+openmp = ["anlg-whisper-local/openmp"]
+[dev-dependencies]
+bytes = { workspace = true }
+dirs = { workspace = true }
+futures-util = { workspace = true }
+owhisper-client = { workspace = true }
+reqwest = { workspace = true, features = ["json", "stream"] }
+tokio-tungstenite = { workspace = true }
+
+[dependencies]
+anlg-audio-chunking = { workspace = true }
+anlg-audio-interface = { workspace = true }
+anlg-audio-utils = { workspace = true }
+anlg-model-manager = { workspace = true, features = ["whisper-local"] }
+anlg-pyannote-local = { workspace = true }
+anlg-transcribe-core = { workspace = true }
+anlg-vocabulary = { workspace = true }
+anlg-whisper = { workspace = true }
+anlg-whisper-local = { workspace = true }
+anlg-ws-utils = { workspace = true }
+owhisper-interface = { workspace = true }
+
+bytes = { workspace = true }
+serde_html_form = { workspace = true }
+serde_json = { workspace = true }
+tempfile = { workspace = true }
+thiserror = { workspace = true }
+
+axum = { workspace = true, features = ["ws"] }
+futures-util = { workspace = true }
+hound = { workspace = true }
+tokio = { workspace = true, features = ["fs", "io-util"] }
+tokio-util = { workspace = true }
+tower = { workspace = true }
+tracing = { workspace = true }
+
+rodio = { workspace = true }

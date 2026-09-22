@@ -1,0 +1,28 @@
+{
+  "$schema": "https://turbo.build/schema.json",
+  "tasks": {
+    "build": {
+      "outputs": ["dist/**", ".output/**"]
+    },
+    "typecheck": {
+      "dependsOn": ["^typecheck"]
+    },
+    "test": {},
+    "dev": {
+      "persistent": true,
+      "cache": false
+    },
+    "//#dev:desktop": {
+      "dependsOn": ["@anlg/ui#build"],
+      "persistent": true,
+      "cache": false
+    },
+    "tauri:dev": {
+      "persistent": true,
+      "cache": false
+    },
+    "tauri:build": {
+      "cache": false
+    }
+  }
+}

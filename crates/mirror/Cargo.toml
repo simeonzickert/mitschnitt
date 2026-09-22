@@ -1,0 +1,26 @@
+[package]
+name = "mirror"
+version = "0.1.0"
+edition = "2024"
+
+# Mitschnitt-Fork: der Markdown-Spiegel. Schreibt fuer jedes Gespraech einen
+# menschenlesbaren Ordner neben die SQLite-Datenbank. Die Richtung ist
+# ausdruecklich EINWEG -- nichts in dieser Kiste liest den Spiegel zurueck in
+# die Datenbank. Der Rueckweg laeuft ueber `session_proposals` (crates/agent-access).
+
+[dependencies]
+anlg-db-app = { workspace = true }
+anlg-tiptap = { workspace = true }
+anlg-transcript = { workspace = true }
+
+chrono = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+sqlx = { workspace = true, features = ["runtime-tokio", "sqlite"] }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+anlg-db-core = { workspace = true }
+tempfile = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt"] }

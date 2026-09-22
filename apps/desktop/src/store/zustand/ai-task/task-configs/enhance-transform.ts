@@ -1,0 +1,319 @@
+import {
+  md2json,
+  parseJsonContent,
+  type JSONContent,
+} from "@anlg/editor/markdown";
+import type {
+  Segment,
+  TemplateSection,
+  Transcript,
+} from "@anlg/plugin-template";
+
+import type { TaskArgsMap, TaskArgsMapTransformed, TaskConfig } from ".";
+import { collectEnhanceImageContext } from "./enhance-images";
+
+import { loadHumansByIds } from "~/contacts/queries";
+import { normalizeSummaryLengthMode } from "~/services/enhancer/summary-length";
+import {
+  loadSessionContentSnapshot,
+  type SessionContentSnapshot,
+} from "~/session/content-queries";
+import { getParticipants, getSessionData } from "~/session/prompt-context";
+import { formatSessionSourceAppsContext } from "~/session/source-apps";
+import { modelSupportsImageInput } from "~/settings/ai/shared/model-capabilities";
+import type { SettingValues } from "~/settings/schema";
+import { parseDictionaryTermsJson } from "~/stt/keywords";
+import {
+  formatMeetingChatContext,
+  loadMeetingChatRecords,
+} from "~/stt/meeting-chat-records";
+import {
+  buildRenderTranscriptRequestFromRows,
+  collectAssignedHumanIdsFromTranscriptRows,
+  formatSegmentStartLabel,
+  renderTranscriptSegments,
+  type TranscriptRow,
+} from "~/stt/render-transcript";
+import { getTemplateById } from "~/templates/queries";
+
+type TranscriptMeta = {
+  id: string;
+  startedAt: number;
+  endedAt: number | null;
+  memoMd: string;
+};
+
+type SegmentPayload = {
+  speaker_label: string;
+  start_ms: number;
+  end_ms: number;
+  text: string;
+  words: Array<{ text: string; start_ms: number; end_ms: number }>;
+};
+
+export const enhanceTransform: Pick<TaskConfig<"enhance">, "transformArgs"> = {
+  transformArgs,
+};
+
+async function transformArgs(
+  args: TaskArgsMap["enhance"],
+  settingsValues: SettingValues,
+): Promise<TaskArgsMapTransformed["enhance"]> {
+  const { sessionId, templateId } = args;
+  const snapshot = await loadSessionContentSnapshot(sessionId);
+  if (!snapshot) {
+    throw new Error(`Session ${sessionId} no longer exists`);
+  }
+
+  const meetingChatContext = formatMeetingChatContext(
+    await loadMeetingChatRecords(sessionId),
+  );
+  const sessionContext = getSessionContext(snapshot, meetingChatContext);
+  const templateRecord = await loadTemplate(templateId);
+  const memoTemplateSections =
+    templateId === snapshot.rawTemplateId
+      ? getMemoTemplateSections(snapshot, templateRecord?.sections ?? [])
+      : null;
+  let template: TaskArgsMapTransformed["enhance"]["template"] = templateRecord
+    ? {
+        title: templateRecord.title,
+        description: templateRecord.description ?? null,
+        sections: templateRecord.sections,
+      }
+    : null;
+  if (memoTemplateSections?.length) {
+    template = {
+      title: templateRecord?.title ?? "Meeting memo",
+      description: templateRecord?.description ?? null,
+      sections: memoTemplateSections,
+    };
+  }
+  const language = getLanguage(settingsValues);
+  const formatOverride = getFormatOverride(settingsValues, templateId);
+  const segments = await getTranscriptSegments(snapshot);
+  const imageContext = modelSupportsImageInput(
+    getOptionalSettingsValue(settingsValues, "current_llm_provider"),
+    getOptionalSettingsValue(settingsValues, "current_llm_model"),
+  )
+    ? await collectEnhanceImageContext(sessionId, [
+        sessionContext.preMeetingMemo,
+        sessionContext.postMeetingMemo,
+      ])
+    : [];
+
+  return {
+    language,
+    formatOverride,
+    session: sessionContext.session,
+    participants: sessionContext.participants,
+    template,
+    preMeetingMemo: sessionContext.preMeetingMemo,
+    postMeetingMemo: sessionContext.postMeetingMemo,
+    transcripts: formatTranscripts(segments, sessionContext.transcriptsMeta),
+    imageContext,
+    summaryLength: normalizeSummaryLengthMode(settingsValues.summary_length),
+    dictionaryTerms: parseDictionaryTermsJson(
+      settingsValues.personalization_dictionary_terms,
+    ),
+  };
+}
+
+function getMemoTemplateSections(
+  snapshot: SessionContentSnapshot,
+  originalSections: TemplateSection[],
+): TemplateSection[] {
+  const document =
+    snapshot.rawContentFormat === "markdown"
+      ? md2json(snapshot.rawContent)
+      : parseJsonContent(snapshot.rawContent);
+  const originalByTitle = new Map(
+    originalSections.map((section) => [section.title.trim(), section]),
+  );
+  const headings = (document.content ?? []).flatMap((node) => {
+    if (node.type !== "heading" || node.attrs?.level !== 2) return [];
+    const title = getNodeText(node).trim();
+    return title ? [title] : [];
+  });
+  const preservePositionDescriptions =
+    headings.length === originalSections.length;
+
+  return headings.map((title, index) => ({
+    title,
+    description:
+      originalByTitle.get(title)?.description ??
+      (preservePositionDescriptions
+        ? originalSections[index]?.description
+        : null) ??
+      null,
+  }));
+}
+
+function getNodeText(node: JSONContent): string {
+  return (
+    node.text ?? node.content?.map((child) => getNodeText(child)).join("") ?? ""
+  );
+}
+
+async function loadTemplate(templateId: string | undefined) {
+  if (!templateId) {
+    return null;
+  }
+
+  try {
+    return await getTemplateById(templateId);
+  } catch (error) {
+    console.error("[enhance] failed to load template", error);
+    return null;
+  }
+}
+
+function formatTranscripts(
+  segments: SegmentPayload[],
+  transcriptsMeta: TranscriptMeta[],
+): Transcript[] {
+  if (segments.length > 0 && transcriptsMeta.length > 0) {
+    const startedAt = transcriptsMeta.reduce(
+      (min, transcript) => Math.min(min, transcript.startedAt),
+      Number.POSITIVE_INFINITY,
+    );
+    const endedAt = transcriptsMeta.reduce(
+      (max, transcript) =>
+        Math.max(max, transcript.endedAt ?? transcript.startedAt),
+      Number.NEGATIVE_INFINITY,
+    );
+
+    return [
+      {
+        segments: segments.map(
+          (segment): Segment => ({
+            speaker: segment.speaker_label,
+            text: segment.text,
+            startLabel: formatSegmentStartLabel(segment.start_ms),
+          }),
+        ),
+        startedAt: Number.isFinite(startedAt) ? startedAt : null,
+        endedAt: Number.isFinite(endedAt) ? endedAt : null,
+      },
+    ];
+  }
+
+  return [];
+}
+
+function getLanguage(settingsValues: SettingValues): string | null {
+  const value = settingsValues.ai_language;
+  return typeof value === "string" && value.length > 0 ? value : null;
+}
+
+function getFormatOverride(
+  settingsValues: SettingValues,
+  templateId: string | undefined,
+): string {
+  if (templateId) {
+    return "";
+  }
+
+  const value = settingsValues.auto_summary_prompt;
+  return typeof value === "string" && value.trim() ? value : "";
+}
+
+function getOptionalSettingsValue(
+  settingsValues: SettingValues,
+  valueId: "current_llm_provider" | "current_llm_model",
+): string | undefined {
+  const value = settingsValues[valueId];
+  return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+function getSessionContext(
+  snapshot: SessionContentSnapshot,
+  meetingChatContext: string,
+) {
+  const transcriptsMeta = snapshot.transcripts.map((transcript) => ({
+    id: transcript.id,
+    startedAt: transcript.started_at,
+    endedAt: transcript.ended_at,
+    memoMd: transcript.memo,
+  }));
+
+  const meetingSourceContext = formatSessionSourceAppsContext(
+    snapshot.sourceApps,
+  );
+  const supplementalContext = [meetingSourceContext, meetingChatContext]
+    .filter((value) => value.trim())
+    .join("\n\n");
+
+  return {
+    preMeetingMemo: transcriptsMeta[0]?.memoMd ?? "",
+    postMeetingMemo: supplementalContext
+      ? [snapshot.rawMarkdown, supplementalContext]
+          .filter((value) => value.trim())
+          .join("\n\n")
+      : snapshot.rawMarkdown,
+    session: getSessionData(snapshot),
+    participants: getParticipants(snapshot),
+    transcriptsMeta,
+  };
+}
+
+async function getTranscriptSegments(
+  snapshot: SessionContentSnapshot,
+): Promise<SegmentPayload[]> {
+  if (snapshot.transcripts.length === 0) {
+    return [];
+  }
+
+  const transcriptRows: TranscriptRow[] = snapshot.transcripts.map(
+    (transcript) => ({
+      started_at: transcript.started_at,
+      words: transcript.words,
+      speaker_hints: transcript.speaker_hints,
+    }),
+  );
+  const humanIds = [
+    snapshot.ownerUserId,
+    ...snapshot.participants.map((participant) => participant.humanId),
+    ...collectAssignedHumanIdsFromTranscriptRows(transcriptRows),
+  ];
+  const humans = await loadHumansByIds(humanIds);
+  const request = buildRenderTranscriptRequestFromRows(
+    transcriptRows,
+    {
+      selfHumanId: snapshot.ownerUserId || undefined,
+      humans: humans
+        .filter((human) => human.name)
+        .map((human) => ({ human_id: human.id, name: human.name })),
+    },
+    snapshot.participants.map((participant) => participant.humanId),
+  );
+  if (!request) {
+    return [];
+  }
+
+  const segments = await renderTranscriptSegments(request);
+
+  return segments
+    .reduce<SegmentPayload[]>((result, segment) => {
+      if (segment.words.length > 0) {
+        result.push(toSegmentPayload(segment));
+      }
+      return result;
+    }, [])
+    .sort((left, right) => left.start_ms - right.start_ms);
+}
+
+function toSegmentPayload(
+  segment: Awaited<ReturnType<typeof renderTranscriptSegments>>[number],
+): SegmentPayload {
+  return {
+    speaker_label: segment.speaker_label,
+    start_ms: segment.start_ms,
+    end_ms: segment.end_ms,
+    text: segment.text,
+    words: segment.words.map((word) => ({
+      text: word.text,
+      start_ms: word.start_ms,
+      end_ms: word.end_ms,
+    })),
+  };
+}

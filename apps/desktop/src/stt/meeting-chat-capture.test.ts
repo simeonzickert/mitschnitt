@@ -1,0 +1,672 @@
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+
+import type { MeetingCapturedChatMessage } from "@anlg/plugin-detect";
+
+import { startMeetingChatCapture } from "./meeting-chat-capture";
+
+const {
+  captureMeetingChatMessagesMock,
+  persistMeetingChatRecordsMock,
+  persistParticipantConsentMock,
+  sonnerToastWarningMock,
+  sonnerToastDismissMock,
+  captureSettingState,
+} = vi.hoisted(() => ({
+  captureMeetingChatMessagesMock: vi.fn(),
+  persistMeetingChatRecordsMock: vi.fn(),
+  persistParticipantConsentMock: vi.fn(),
+  sonnerToastWarningMock: vi.fn(),
+  sonnerToastDismissMock: vi.fn(),
+  captureSettingState: { value: true },
+}));
+
+vi.mock("@anlg/plugin-detect", () => ({
+  commands: {
+    captureMeetingChatMessages: captureMeetingChatMessagesMock,
+  },
+}));
+
+vi.mock("~/stt/meeting-chat-records", () => ({
+  persistMeetingChatRecords: persistMeetingChatRecordsMock,
+}));
+
+vi.mock("~/stt/meeting-consent-store", () => ({
+  persistParticipantConsent: persistParticipantConsentMock,
+}));
+
+vi.mock("@anlg/ui/components/ui/toast", () => ({
+  sonnerToast: {
+    warning: sonnerToastWarningMock,
+    dismiss: sonnerToastDismissMock,
+  },
+}));
+
+vi.mock("~/settings/queries", () => ({
+  getStoredSettingValues: vi.fn(async () => ({
+    values: { capture_meeting_chat: captureSettingState.value },
+    hasValues: new Set(["capture_meeting_chat"]),
+  })),
+}));
+
+const capturedMessage = {
+  id: "msg-1",
+  platform: "zoom" as const,
+  surface: "native" as const,
+  sender: "Ada",
+  timestamp: "10:42 AM",
+  direction: "incoming" as const,
+  text: "Here is the doc https://example.com/spec",
+  links: ["https://example.com/spec"],
+};
+
+describe("startMeetingChatCapture", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.clearAllMocks();
+    captureSettingState.value = true;
+    captureMeetingChatMessagesMock.mockResolvedValue(
+      captureResult([capturedMessage]),
+    );
+    persistMeetingChatRecordsMock.mockImplementation(
+      async ({ entries }: { entries: Array<{ sourceSignature: string }> }) =>
+        entries.map((entry) => entry.sourceSignature),
+    );
+    persistParticipantConsentMock.mockResolvedValue(undefined);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  test("persists an appended message while the meeting context stays the same", async () => {
+    const stop = startMeetingChatCapture({
+      sessionId: "session-1",
+      isEnabled: () => true,
+    });
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(persistMeetingChatRecordsMock).not.toHaveBeenCalled();
+
+    const laterMessage = {
+      ...capturedMessage,
+      id: "msg-2",
+      text: "Let's discuss this next",
+      links: [],
+    };
+    captureMeetingChatMessagesMock.mockResolvedValue(
+      captureResult([capturedMessage, laterMessage]),
+    );
+    await vi.advanceTimersByTimeAsync(5_000);
+    stop();
+
+    expect(persistMeetingChatRecordsMock).toHaveBeenCalledWith({
+      sessionId: "session-1",
+      entries: [
+        {
+          message: laterMessage,
+          sourceSignature: "zoom:meeting-1\nzoom\nnative\nmsg-2",
+        },
+      ],
+    });
+  });
+
+  test("reads the current capture setting after the initiating view unmounts", async () => {
+    const stop = startMeetingChatCapture({ sessionId: "session-1" });
+    await vi.advanceTimersByTimeAsync(0);
+
+    captureSettingState.value = false;
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(captureMeetingChatMessagesMock).toHaveBeenCalledTimes(1);
+
+    const messageWhileDisabled = {
+      ...capturedMessage,
+      id: "while-disabled",
+    };
+    captureMeetingChatMessagesMock.mockResolvedValue(
+      captureResult([capturedMessage, messageWhileDisabled]),
+    );
+    captureSettingState.value = true;
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(persistMeetingChatRecordsMock).not.toHaveBeenCalled();
+
+    const laterMessage = { ...capturedMessage, id: "after-reenable" };
+    captureMeetingChatMessagesMock.mockResolvedValue(
+      captureResult([capturedMessage, messageWhileDisabled, laterMessage]),
+    );
+    await vi.advanceTimersByTimeAsync(5_000);
+    stop();
+
+    expect(persistMeetingChatRecordsMock).toHaveBeenCalledWith({
+      sessionId: "session-1",
+      entries: [
+        {
+          message: laterMessage,
+          sourceSignature: "zoom:meeting-1\nzoom\nnative\nafter-reenable",
+        },
+      ],
+    });
+  });
+
+  test("re-baselines history and scopes reused AX ids when the meeting context changes", async () => {
+    const stop = startMeetingChatCapture({
+      sessionId: "session-1",
+      isEnabled: () => true,
+    });
+    await vi.advanceTimersByTimeAsync(0);
+
+    const nextMeetingHistory = {
+      ...capturedMessage,
+      id: "next-meeting-history",
+      text: "This belongs to another meeting",
+      links: [],
+    };
+    captureMeetingChatMessagesMock.mockResolvedValue(
+      captureResult([nextMeetingHistory], "zoom:meeting-2"),
+    );
+    await vi.advanceTimersByTimeAsync(5_000);
+
+    expect(persistMeetingChatRecordsMock).not.toHaveBeenCalled();
+
+    const nextMeetingMessage = {
+      ...capturedMessage,
+      id: "msg-1",
+      text: "This was sent after switching",
+      links: [],
+    };
+    captureMeetingChatMessagesMock.mockResolvedValue(
+      captureResult([nextMeetingHistory, nextMeetingMessage], "zoom:meeting-2"),
+    );
+    await vi.advanceTimersByTimeAsync(5_000);
+    stop();
+
+    expect(persistMeetingChatRecordsMock).toHaveBeenCalledOnce();
+    expect(persistMeetingChatRecordsMock).toHaveBeenCalledWith({
+      sessionId: "session-1",
+      entries: [
+        {
+          message: nextMeetingMessage,
+          sourceSignature: "zoom:meeting-2\nzoom\nnative\nmsg-1",
+        },
+      ],
+    });
+  });
+
+  test("keeps the last context across a transient missing-context poll", async () => {
+    const stop = startMeetingChatCapture({
+      sessionId: "session-1",
+      isEnabled: () => true,
+    });
+    await vi.advanceTimersByTimeAsync(0);
+
+    const messageWithoutContext = {
+      ...capturedMessage,
+      id: "missing-context",
+    };
+    captureMeetingChatMessagesMock.mockResolvedValue(
+      captureResult([capturedMessage, messageWithoutContext], null),
+    );
+    await vi.advanceTimersByTimeAsync(5_000);
+
+    captureMeetingChatMessagesMock.mockResolvedValue(
+      captureResult([capturedMessage, messageWithoutContext]),
+    );
+    await vi.advanceTimersByTimeAsync(5_000);
+    stop();
+
+    expect(persistMeetingChatRecordsMock).toHaveBeenCalledWith({
+      sessionId: "session-1",
+      entries: [
+        {
+          message: messageWithoutContext,
+          sourceSignature: "zoom:meeting-1\nzoom\nnative\nmissing-context",
+        },
+      ],
+    });
+  });
+
+  test("captures the first message after a visible empty-chat baseline", async () => {
+    captureMeetingChatMessagesMock.mockResolvedValue(captureResult([]));
+    const stop = startMeetingChatCapture({
+      sessionId: "session-1",
+      isEnabled: () => true,
+    });
+    await vi.advanceTimersByTimeAsync(0);
+
+    captureMeetingChatMessagesMock.mockResolvedValue(
+      captureResult([capturedMessage]),
+    );
+    await vi.advanceTimersByTimeAsync(5_000);
+    stop();
+
+    expect(persistMeetingChatRecordsMock).toHaveBeenCalledOnce();
+  });
+
+  test("keeps the last context while the validated chat surface is hidden", async () => {
+    const stop = startMeetingChatCapture({
+      sessionId: "session-1",
+      isEnabled: () => true,
+    });
+    await vi.advanceTimersByTimeAsync(0);
+
+    captureMeetingChatMessagesMock.mockResolvedValue({
+      status: "ok",
+      data: {
+        app: null,
+        contextId: null,
+        platform: "unknown",
+        surface: "unknown",
+        messages: [],
+        warnings: ["no visible supported meeting chat messages found"],
+      },
+    });
+    await vi.advanceTimersByTimeAsync(5_000);
+
+    const messageWhileHidden = {
+      ...capturedMessage,
+      id: "while-hidden",
+    };
+    captureMeetingChatMessagesMock.mockResolvedValue(
+      captureResult([capturedMessage, messageWhileHidden]),
+    );
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(persistMeetingChatRecordsMock).toHaveBeenCalledWith({
+      sessionId: "session-1",
+      entries: [
+        {
+          message: messageWhileHidden,
+          sourceSignature: "zoom:meeting-1\nzoom\nnative\nwhile-hidden",
+        },
+      ],
+    });
+
+    const laterMessage = { ...capturedMessage, id: "after-rebaseline" };
+    captureMeetingChatMessagesMock.mockResolvedValue(
+      captureResult([capturedMessage, messageWhileHidden, laterMessage]),
+    );
+    await vi.advanceTimersByTimeAsync(5_000);
+    stop();
+
+    expect(persistMeetingChatRecordsMock).toHaveBeenLastCalledWith({
+      sessionId: "session-1",
+      entries: [
+        {
+          message: laterMessage,
+          sourceSignature: "zoom:meeting-1\nzoom\nnative\nafter-rebaseline",
+        },
+      ],
+    });
+  });
+
+  test("excludes the generated disclosure while retaining participant chat", async () => {
+    const disclosure = "Anarlog disclosure https://anarlog.so";
+    captureMeetingChatMessagesMock.mockResolvedValue(captureResult([]));
+    const stop = startMeetingChatCapture({
+      sessionId: "session-1",
+      isEnabled: () => true,
+      excludedTexts: [disclosure],
+    });
+    await vi.advanceTimersByTimeAsync(0);
+
+    captureMeetingChatMessagesMock.mockResolvedValue(
+      captureResult([
+        {
+          ...capturedMessage,
+          id: "disclosure",
+          direction: "outgoing",
+          text: `  ${disclosure.replace(" ", "\n")}  `,
+          links: ["https://anarlog.so"],
+        },
+        capturedMessage,
+      ]),
+    );
+    await vi.advanceTimersByTimeAsync(5_000);
+    stop();
+
+    expect(persistMeetingChatRecordsMock).toHaveBeenCalledWith({
+      sessionId: "session-1",
+      entries: [
+        {
+          message: capturedMessage,
+          sourceSignature: "zoom:meeting-1\nzoom\nnative\nmsg-1",
+        },
+      ],
+    });
+  });
+
+  test("retries a message after a storage failure", async () => {
+    captureMeetingChatMessagesMock.mockResolvedValue(captureResult([]));
+    const stop = startMeetingChatCapture({
+      sessionId: "session-1",
+      isEnabled: () => true,
+    });
+    await vi.advanceTimersByTimeAsync(0);
+
+    captureMeetingChatMessagesMock.mockResolvedValue(
+      captureResult([capturedMessage]),
+    );
+    persistMeetingChatRecordsMock.mockRejectedValueOnce(new Error("locked"));
+    await vi.advanceTimersByTimeAsync(5_000);
+    await vi.advanceTimersByTimeAsync(5_000);
+    stop();
+
+    expect(persistMeetingChatRecordsMock).toHaveBeenCalledTimes(2);
+  });
+
+  test("uses a bounded signature and does not retry a rejected oversized message", async () => {
+    captureMeetingChatMessagesMock.mockResolvedValue(captureResult([]));
+    const stop = startMeetingChatCapture({
+      sessionId: "session-1",
+      isEnabled: () => true,
+    });
+    await vi.advanceTimersByTimeAsync(0);
+
+    const oversizedMessage = {
+      ...capturedMessage,
+      id: "",
+      text: "x".repeat(100_000),
+    };
+    captureMeetingChatMessagesMock.mockResolvedValue(
+      captureResult([oversizedMessage]),
+    );
+    await vi.advanceTimersByTimeAsync(5_000);
+    await vi.advanceTimersByTimeAsync(5_000);
+    stop();
+
+    expect(persistMeetingChatRecordsMock).toHaveBeenCalledOnce();
+    const sourceSignature =
+      persistMeetingChatRecordsMock.mock.calls[0]?.[0].entries[0]
+        .sourceSignature;
+    expect(sourceSignature.length).toBeLessThan(100);
+    expect(sourceSignature).not.toContain(oversizedMessage.text);
+  });
+
+  test("waits for an in-flight persistence write when capture stops", async () => {
+    captureMeetingChatMessagesMock.mockResolvedValue(captureResult([]));
+    const stop = startMeetingChatCapture({
+      sessionId: "session-1",
+      isEnabled: () => true,
+    });
+    await vi.advanceTimersByTimeAsync(0);
+
+    let resolvePersistence:
+      | ((persistedSignatures: string[]) => void)
+      | undefined;
+    persistMeetingChatRecordsMock.mockReturnValueOnce(
+      new Promise<string[]>((resolve) => {
+        resolvePersistence = resolve;
+      }),
+    );
+    captureMeetingChatMessagesMock.mockResolvedValue(
+      captureResult([capturedMessage]),
+    );
+    await vi.advanceTimersByTimeAsync(5_000);
+
+    const stopped = stop();
+    let settled = false;
+    void stopped.then(() => {
+      settled = true;
+    });
+    await Promise.resolve();
+
+    expect(persistMeetingChatRecordsMock).toHaveBeenCalledOnce();
+    expect(settled).toBe(false);
+
+    resolvePersistence?.(["zoom:meeting-1\nzoom\nnative\nmsg-1"]);
+    await stopped;
+
+    expect(settled).toBe(true);
+  });
+
+  test("stops without waiting for a stalled poll and fences its late result", async () => {
+    let resolveCapture: ((value: unknown) => void) | undefined;
+    captureMeetingChatMessagesMock.mockReturnValue(
+      new Promise((resolve) => {
+        resolveCapture = resolve;
+      }),
+    );
+    const stop = startMeetingChatCapture({
+      sessionId: "session-1",
+      isEnabled: () => true,
+    });
+    await vi.advanceTimersByTimeAsync(0);
+
+    await expect(stop()).resolves.toBeUndefined();
+    expect(persistMeetingChatRecordsMock).not.toHaveBeenCalled();
+
+    resolveCapture?.(captureResult([capturedMessage]));
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(persistMeetingChatRecordsMock).not.toHaveBeenCalled();
+  });
+
+  test("waits a full interval after a slow capture finishes", async () => {
+    let resolveCapture: ((value: unknown) => void) | undefined;
+    captureMeetingChatMessagesMock.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveCapture = resolve;
+      }),
+    );
+    const stop = startMeetingChatCapture({
+      sessionId: "session-1",
+      isEnabled: () => true,
+    });
+    await vi.advanceTimersByTimeAsync(30_000);
+
+    expect(captureMeetingChatMessagesMock).toHaveBeenCalledOnce();
+
+    resolveCapture?.(captureResult([capturedMessage]));
+    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(4_999);
+    expect(captureMeetingChatMessagesMock).toHaveBeenCalledOnce();
+
+    await vi.advanceTimersByTimeAsync(1);
+    expect(captureMeetingChatMessagesMock).toHaveBeenCalledTimes(2);
+    await stop();
+  });
+
+  test("does not capture while disabled and re-baselines when enabled", async () => {
+    let enabled = false;
+    const stop = startMeetingChatCapture({
+      sessionId: "session-1",
+      isEnabled: () => enabled,
+    });
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(captureMeetingChatMessagesMock).not.toHaveBeenCalled();
+
+    enabled = true;
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(captureMeetingChatMessagesMock).toHaveBeenCalledWith();
+    expect(persistMeetingChatRecordsMock).not.toHaveBeenCalled();
+
+    enabled = false;
+    await vi.advanceTimersByTimeAsync(5_000);
+    enabled = true;
+    captureMeetingChatMessagesMock.mockResolvedValue(
+      captureResult([
+        capturedMessage,
+        { ...capturedMessage, id: "during-disabled" },
+      ]),
+    );
+    await vi.advanceTimersByTimeAsync(5_000);
+    stop();
+
+    expect(persistMeetingChatRecordsMock).not.toHaveBeenCalled();
+  });
+
+  test("delegates mic-active app scoping to the native capture command", async () => {
+    captureMeetingChatMessagesMock.mockResolvedValue({
+      status: "ok",
+      data: {
+        app: null,
+        contextId: null,
+        platform: "unknown",
+        surface: "unknown",
+        messages: [],
+        warnings: ["expected exactly one active supported meeting app"],
+      },
+    });
+    const stop = startMeetingChatCapture({
+      sessionId: "session-1",
+      isEnabled: () => true,
+    });
+    await vi.advanceTimersByTimeAsync(0);
+    stop();
+
+    expect(captureMeetingChatMessagesMock).toHaveBeenCalledWith();
+    expect(persistMeetingChatRecordsMock).not.toHaveBeenCalled();
+  });
+
+  test("accepts the alternate Slack bundle id selected natively", async () => {
+    captureMeetingChatMessagesMock.mockResolvedValue({
+      status: "ok",
+      data: {
+        app: { id: "com.slack.Slack", name: "Slack" },
+        contextId: "slack:test",
+        platform: "slack",
+        surface: "native",
+        messages: [],
+        warnings: [],
+      },
+    });
+    const stop = startMeetingChatCapture({
+      sessionId: "session-1",
+      isEnabled: () => true,
+    });
+    await vi.advanceTimersByTimeAsync(0);
+    stop();
+
+    expect(captureMeetingChatMessagesMock).toHaveBeenCalledWith();
+  });
+
+  test("accepts a browser meeting resolved natively", async () => {
+    captureMeetingChatMessagesMock.mockResolvedValue({
+      status: "ok",
+      data: {
+        app: { id: "com.google.Chrome", name: "Google Chrome" },
+        contextId: "google-meet:meeting-1",
+        platform: "googleMeet",
+        surface: "web",
+        messages: [],
+        warnings: [],
+      },
+    });
+    const stop = startMeetingChatCapture({
+      sessionId: "session-1",
+      isEnabled: () => true,
+    });
+    await vi.advanceTimersByTimeAsync(0);
+    stop();
+
+    expect(captureMeetingChatMessagesMock).toHaveBeenCalledWith();
+    expect(persistMeetingChatRecordsMock).not.toHaveBeenCalled();
+  });
+
+  test("surfaces missing Accessibility permission once", async () => {
+    captureMeetingChatMessagesMock.mockResolvedValue({
+      status: "ok",
+      data: {
+        app: null,
+        contextId: null,
+        platform: "unknown",
+        surface: "unknown",
+        messages: [],
+        warnings: ["macOS accessibility permission is not trusted"],
+      },
+    });
+    const stop = startMeetingChatCapture({
+      sessionId: "session-1",
+      isEnabled: () => true,
+    });
+    await vi.advanceTimersByTimeAsync(5_000);
+    stop();
+
+    expect(sonnerToastWarningMock).toHaveBeenCalledOnce();
+    expect(sonnerToastWarningMock).toHaveBeenCalledWith(
+      "Meeting chat capture needs Accessibility permission in Settings",
+      {
+        id: "meeting-chat-capture-warning",
+        duration: Infinity,
+      },
+    );
+  });
+
+  test("surfaces a missing Linux accessibility bus once", async () => {
+    captureMeetingChatMessagesMock.mockResolvedValue({
+      status: "ok",
+      data: {
+        app: null,
+        contextId: null,
+        platform: "unknown",
+        surface: "unknown",
+        messages: [],
+        warnings: ["AT-SPI accessibility bus is not available"],
+      },
+    });
+    const stop = startMeetingChatCapture({
+      sessionId: "session-1",
+      isEnabled: () => true,
+    });
+    await vi.advanceTimersByTimeAsync(5_000);
+    stop();
+
+    expect(sonnerToastWarningMock).toHaveBeenCalledOnce();
+    expect(sonnerToastWarningMock).toHaveBeenCalledWith(
+      "Meeting chat capture needs the desktop accessibility bus",
+      {
+        id: "meeting-chat-capture-warning",
+        duration: Infinity,
+      },
+    );
+  });
+
+  test("stops listening after an explicit chat decline without treating disclosure as consent", async () => {
+    const onParticipantDeclined = vi.fn();
+    const stop = startMeetingChatCapture({
+      sessionId: "session-1",
+      isEnabled: () => true,
+      onParticipantDeclined,
+    });
+    await vi.advanceTimersByTimeAsync(0);
+
+    const decline = {
+      ...capturedMessage,
+      id: "msg-decline",
+      text: "I do not consent",
+      links: [],
+    };
+    captureMeetingChatMessagesMock.mockResolvedValue(
+      captureResult([capturedMessage, decline]),
+    );
+    await vi.advanceTimersByTimeAsync(5_000);
+    stop();
+
+    expect(persistParticipantConsentMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionId: "session-1",
+        participantKey: "Ada",
+        status: "declined",
+        source: "explicit_chat_reply",
+      }),
+    );
+    expect(onParticipantDeclined).toHaveBeenCalledOnce();
+  });
+});
+
+function captureResult(
+  messages: MeetingCapturedChatMessage[],
+  contextId: string | null = "zoom:meeting-1",
+) {
+  return {
+    status: "ok" as const,
+    data: {
+      app: { id: "us.zoom.xos", name: "Zoom" },
+      contextId,
+      platform: "zoom" as const,
+      surface: "native" as const,
+      messages,
+      warnings: [],
+    },
+  };
+}

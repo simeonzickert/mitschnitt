@@ -1,0 +1,13 @@
+[default]
+description = "Default permissions for the plugin"
+permissions = [
+  "allow-list-webhooks",
+  "allow-create-webhook",
+  "allow-delete-webhook",
+  "allow-set-webhook-active",
+  "allow-test-webhook",
+  "allow-dispatch-event",
+  "allow-export-meeting-markdown",
+  "allow-get-cloud-snapshot",
+  "allow-list-cloud-snapshot-ids",
+]

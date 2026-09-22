@@ -1,0 +1,27 @@
+[env]
+IPHONEOS_DEPLOYMENT_TARGET = { value = "16.4", force = true }
+# 15.0 matches apps/desktop/src-tauri/tauri.conf.json -> minimumSystemVersion "15.0",
+# which the app already shipped. Qwen3ASR (speech-swift) needs CoreML's MLState,
+# macOS 15+; at 14.2 the Swift bridge would not compile at all.
+MACOSX_DEPLOYMENT_TARGET = { value = "15.0", force = true }
+
+# libmp3lame wird seit 22.09.2026 dynamisch gelinkt (LGPL-3 Paragraf 4, siehe
+# vendor/mp3lame-sys/build.rs). Das Programm sucht sie dann unter
+# `@rpath/libmp3lame.0.dylib` und braucht dafuer einen Suchpfad im Binary.
+# Gemessen: das ausgelieferte Bundle trug VOR dieser Zeile ueberhaupt keinen
+# LC_RPATH -- Tauri setzt keinen. Ohne die Zeile startet die App nicht.
+#
+# Testbinaries liegen nicht in einem Bundle und finden die Bibliothek darueber
+# nicht. Fuer sie:
+#   DYLD_FALLBACK_LIBRARY_PATH=/usr/lib/swift:<repo>/vendor/lame-dylib
+[target.'cfg(target_os = "macos")']
+rustflags = [
+  "-C",
+  "link-arg=-Wl,-rpath,@executable_path/../Frameworks",
+]
+
+[target.'cfg(all(windows, target_env = "msvc"))']
+rustflags = [
+  "-C",
+  "target-feature=-crt-static",
+]

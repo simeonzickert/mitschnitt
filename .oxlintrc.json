@@ -1,0 +1,25 @@
+{
+  "ignorePatterns": ["**/*.gen.ts"],
+  "plugins": ["promise"],
+  "jsPlugins": ["./eslint-plugin-anlg.mjs"],
+  "rules": {
+    "anlg/await-tauri-commands": "warn",
+    "anlg/no-raw-tinybase": "off"
+  },
+  "overrides": [
+    {
+      "files": ["**/*.{ts,tsx}"],
+      "plugins": ["typescript"]
+    },
+    {
+      "files": ["apps/desktop/src/**/*.{ts,tsx}", "apps/web/src/**/*.{ts,tsx}"],
+      "plugins": ["react", "react-perf"]
+    },
+    {
+      "files": ["apps/desktop/src/**/*.{ts,tsx}"],
+      "rules": {
+        "anlg/no-raw-tinybase": "error"
+      }
+    }
+  ]
+}

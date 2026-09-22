@@ -1,0 +1,35 @@
+[package]
+name = "mitschnitt-cli"
+version = "0.1.0"
+edition = "2024"
+
+# Der Fork traegt seinen eigenen Namen bis ins Binaerartefakt (ZICK-261).
+# Upstream hiess das Paket `anarlog-cli` mit dem Binaernamen `anarlog`; beides
+# ist hier umgestellt, damit ein Release-Bau nicht wieder unter fremdem Namen
+# herauskommt und der Desktop-Knopf nicht das falsche Sidecar sucht.
+[[bin]]
+name = "mitschnitt"
+path = "src/main.rs"
+
+[dependencies]
+anlg-agent-access = { workspace = true }
+anlg-db-app = { workspace = true }
+anlg-db-core = { workspace = true }
+anlg-mirror = { workspace = true }
+anlg-storage = { workspace = true }
+
+clap = { workspace = true, features = ["derive", "env"] }
+dirs = { workspace = true }
+rmcp = { workspace = true, features = ["server", "transport-io"] }
+schemars = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["io-std", "macros", "rt-multi-thread"] }
+url = { workspace = true }
+
+[dev-dependencies]
+insta = { workspace = true, features = ["json"] }
+rmcp = { workspace = true, features = ["client", "transport-child-process"] }
+sqlx = { workspace = true, features = ["runtime-tokio", "sqlite"] }
+tempfile = { workspace = true }

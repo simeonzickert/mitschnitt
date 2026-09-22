@@ -1,0 +1,49 @@
+[package]
+name = "listener-core"
+version = "0.1.0"
+edition = "2024"
+
+[features]
+default = []
+specta = ["dep:specta"]
+tauri-event = ["specta", "dep:tauri-specta"]
+
+[dependencies]
+anlg-audio = { workspace = true }
+anlg-audio-device = { workspace = true }
+anlg-audio-utils = { workspace = true }
+anlg-device-monitor = { workspace = true }
+anlg-language = { workspace = true }
+anlg-storage = { workspace = true }
+anlg-supervisor = { workspace = true }
+anlg-transcribe-soniqo = { workspace = true }
+anlg-transcribe-speechanalyzer = { workspace = true }
+anlg-transcript = { workspace = true }
+anlg-vad-masking = { workspace = true }
+
+owhisper-client = { workspace = true, features = ["local"] }
+owhisper-interface = { workspace = true }
+
+anlg-mp3 = { workspace = true }
+hound = { workspace = true }
+vorbis_rs = { workspace = true }
+
+ractor = { workspace = true, features = ["async-trait"] }
+
+bytes = { workspace = true }
+futures-util = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+specta = { workspace = true, optional = true }
+tauri-specta = { workspace = true, optional = true, features = ["derive"] }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "signal"] }
+tokio-stream = { workspace = true }
+tokio-util = { workspace = true }
+tracing = { workspace = true }
+uuid = { workspace = true }
+
+[dev-dependencies]
+anlg-fixtures = { workspace = true }
+tempfile = { workspace = true }
+tracing-subscriber = { workspace = true }

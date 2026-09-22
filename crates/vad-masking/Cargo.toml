@@ -1,0 +1,14 @@
+[package]
+name = "vad-masking"
+version = "0.1.0"
+edition = "2024"
+
+[dev-dependencies]
+anlg-audacity = { workspace = true }
+clap = { workspace = true, features = ["derive"] }
+hound = { workspace = true }
+rodio = { workspace = true }
+
+[dependencies]
+anlg-audio-utils = { workspace = true }
+anlg-vad = { workspace = true, features = ["earshot"] }

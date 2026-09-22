@@ -1,0 +1,477 @@
+import { Trans, useLingui } from "@lingui/react/macro";
+import { CircleNotch, Copy } from "@phosphor-icons/react";
+import { useMutation } from "@tanstack/react-query";
+import { readText as readClipboardText } from "@tauri-apps/plugin-clipboard-manager";
+import { useEffect, useRef, useState } from "react";
+
+import {
+  commands as deeplink2Commands,
+  events as deeplink2Events,
+} from "@anlg/plugin-deeplink2";
+import { commands as openerCommands } from "@anlg/plugin-opener2";
+import { Button } from "@anlg/ui/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@anlg/ui/components/ui/dialog";
+import { Input } from "@anlg/ui/components/ui/input";
+
+import { type Provider } from "../shared";
+import {
+  authorizationInputFromParsed,
+  CHATGPT_CALLBACK_PORT,
+  completeCodeConnect,
+  type ConnectSession,
+  isSubscriptionProviderId,
+  looksLikeAuthorizationInput,
+  pollDeviceConnect,
+  startSubscriptionConnect,
+  subscriptionAuthFromCallback,
+} from "./oauth";
+
+import { useProviderSelectionPrompt } from "~/settings/ai/shared/provider-selection-prompt";
+import { useSetAiProvider } from "~/settings/providers";
+import { useConfigValue } from "~/shared/config";
+import { getScheme } from "~/shared/utils";
+
+export function ConnectSubscriptionDialog({
+  provider,
+  onOpenChange,
+}: {
+  provider?: Provider;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const { t } = useLingui();
+  const currentProvider = useConfigValue("current_llm_provider");
+  const providerId =
+    provider && isSubscriptionProviderId(provider.id) ? provider.id : null;
+  const saveProvider = useSetAiProvider("llm", providerId ?? "claude");
+  const notifyProviderSelection = useProviderSelectionPrompt({
+    providerType: "llm",
+    providerId: providerId ?? "claude",
+    providerName: provider?.displayName ?? "Claude",
+    currentProvider,
+    providerStateReady: true,
+    storedApiKey: "",
+  });
+  const [session, setSession] = useState<ConnectSession | null>(null);
+  const [code, setCode] = useState("");
+  const [apiKey, setApiKey] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [isStarting, setIsStarting] = useState(false);
+  const [listeningForCallback, setListeningForCallback] = useState(false);
+  const [showPasteFallback, setShowPasteFallback] = useState(false);
+  const pollRef = useRef<number | null>(null);
+  const saveProviderRef = useRef(saveProvider);
+  const notifyProviderSelectionRef = useRef(notifyProviderSelection);
+  const onOpenChangeRef = useRef(onOpenChange);
+  const sessionRef = useRef(session);
+  const pendingCodeRef = useRef<string | null>(null);
+  const completingRef = useRef(false);
+  saveProviderRef.current = saveProvider;
+  notifyProviderSelectionRef.current = notifyProviderSelection;
+  onOpenChangeRef.current = onOpenChange;
+  sessionRef.current = session;
+
+  const finishConnect = async (stored: string) => {
+    notifyProviderSelection(stored);
+    onOpenChange(false);
+  };
+
+  const completeMutation = useMutation({
+    mutationFn: async (rawCode?: string) => {
+      if (!providerId || !provider) {
+        throw new Error("No provider selected.");
+      }
+      if (providerId === "kimi_code") {
+        const key = apiKey.trim();
+        if (!key) {
+          throw new Error("Paste your Kimi Code API key.");
+        }
+        await saveProvider.mutateAsync({
+          base_url: provider.baseUrl,
+          api_key: key,
+        });
+        return key;
+      }
+      if (!session || session.kind === "api_key") {
+        throw new Error("Sign-in is not ready yet.");
+      }
+      if (session.kind === "code") {
+        if (providerId !== "claude" && providerId !== "chatgpt") {
+          throw new Error("This provider uses a different sign-in flow.");
+        }
+        const stored = await completeCodeConnect(
+          providerId,
+          session,
+          rawCode ?? code,
+        );
+        await saveProvider.mutateAsync({
+          base_url: provider.baseUrl,
+          api_key: stored,
+        });
+        return stored;
+      }
+      throw new Error("Waiting for authorization in the browser.");
+    },
+    onSuccess: (stored) => {
+      void finishConnect(stored);
+    },
+    onError: (caught) => {
+      completingRef.current = false;
+      setError(caught instanceof Error ? caught.message : String(caught));
+    },
+  });
+
+  const completeFromAuthorization = (rawCode: string) => {
+    if (completingRef.current) {
+      return;
+    }
+    completingRef.current = true;
+    setCode(rawCode);
+    setError(null);
+    completeMutation.mutate(rawCode);
+  };
+  const completeFromAuthorizationRef = useRef(completeFromAuthorization);
+  completeFromAuthorizationRef.current = completeFromAuthorization;
+
+  useEffect(() => {
+    if (!providerId) {
+      setSession(null);
+      setCode("");
+      setApiKey("");
+      setError(null);
+      setIsStarting(false);
+      setListeningForCallback(false);
+      setShowPasteFallback(false);
+      completingRef.current = false;
+      return;
+    }
+
+    let cancelled = false;
+    const loopback = { started: false };
+
+    setSession(null);
+    setCode("");
+    setApiKey("");
+    setError(null);
+    setIsStarting(true);
+    setListeningForCallback(false);
+    setShowPasteFallback(false);
+    pendingCodeRef.current = null;
+    completingRef.current = false;
+    void (async () => {
+      try {
+        if (providerId === "chatgpt") {
+          try {
+            const scheme = await getScheme();
+            const started = await deeplink2Commands.startCallbackServer(
+              scheme,
+              CHATGPT_CALLBACK_PORT,
+            );
+            if (
+              started.status === "ok" &&
+              started.data === CHATGPT_CALLBACK_PORT
+            ) {
+              if (cancelled) {
+                await deeplink2Commands.stopCallbackServer();
+                return;
+              }
+              loopback.started = true;
+              setListeningForCallback(true);
+            } else if (!cancelled) {
+              setShowPasteFallback(true);
+            }
+          } catch {
+            if (!cancelled) {
+              setShowPasteFallback(true);
+            }
+          }
+        }
+
+        const next = await startSubscriptionConnect(providerId);
+        if (next.kind === "code" || next.kind === "device") {
+          const opened = await openerCommands.openUrl(
+            next.kind === "code" ? next.url : next.verificationUrl,
+            null,
+          );
+          if (opened.status === "error") {
+            throw new Error(opened.error);
+          }
+        }
+        if (!cancelled) {
+          setSession(next);
+        }
+      } catch (caught) {
+        if (!cancelled) {
+          setError(caught instanceof Error ? caught.message : String(caught));
+        }
+      } finally {
+        if (!cancelled) {
+          setIsStarting(false);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      if (loopback.started) {
+        void deeplink2Commands.stopCallbackServer();
+      }
+    };
+  }, [providerId]);
+
+  useEffect(() => {
+    if (providerId !== "chatgpt" && providerId !== "claude") {
+      return;
+    }
+
+    let cancelled = false;
+    const subscription = deeplink2Events.deepLinkEvent.listen(({ payload }) => {
+      if (cancelled || payload.to !== "/auth/callback") {
+        return;
+      }
+      const parsed = subscriptionAuthFromCallback(payload.search);
+      if (!parsed) {
+        return;
+      }
+      const raw = authorizationInputFromParsed(parsed);
+      const current = sessionRef.current;
+      if (!current || current.kind !== "code") {
+        pendingCodeRef.current = raw;
+        return;
+      }
+      if (parsed.state && parsed.state !== current.state) {
+        setError("This sign-in expired. Try connecting again.");
+        return;
+      }
+      completeFromAuthorizationRef.current(raw);
+    });
+
+    return () => {
+      cancelled = true;
+      void subscription.then((unlisten) => unlisten()).catch(() => {});
+    };
+  }, [providerId]);
+
+  useEffect(() => {
+    if (session?.kind !== "code" || !pendingCodeRef.current) {
+      return;
+    }
+    const pending = pendingCodeRef.current;
+    pendingCodeRef.current = null;
+    completeFromAuthorizationRef.current(pending);
+  }, [session]);
+
+  useEffect(() => {
+    if (providerId !== "claude" || session?.kind !== "code") {
+      return;
+    }
+
+    let cancelled = false;
+    const pollClipboard = async () => {
+      try {
+        const text = await readClipboardText();
+        if (cancelled || !looksLikeAuthorizationInput(text)) {
+          return;
+        }
+        completeFromAuthorizationRef.current(text);
+      } catch {
+        // Clipboard permission or empty clipboard — keep the paste field.
+      }
+    };
+
+    const intervalId = window.setInterval(() => {
+      void pollClipboard();
+    }, 1000);
+    void pollClipboard();
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
+  }, [providerId, session]);
+
+  useEffect(() => {
+    if (
+      !providerId ||
+      !provider ||
+      !session ||
+      session.kind !== "device" ||
+      (providerId !== "github_copilot" && providerId !== "grok")
+    ) {
+      return;
+    }
+
+    let cancelled = false;
+    const poll = async () => {
+      try {
+        const result = await pollDeviceConnect(providerId, session);
+        if (cancelled) {
+          return;
+        }
+        if (result === "pending") {
+          pollRef.current = window.setTimeout(poll, session.intervalMs);
+          return;
+        }
+        await saveProviderRef.current.mutateAsync({
+          base_url: provider.baseUrl,
+          api_key: result,
+        });
+        notifyProviderSelectionRef.current(result);
+        onOpenChangeRef.current(false);
+      } catch (caught) {
+        if (!cancelled) {
+          setError(caught instanceof Error ? caught.message : String(caught));
+        }
+      }
+    };
+    pollRef.current = window.setTimeout(poll, session.intervalMs);
+    return () => {
+      cancelled = true;
+      if (pollRef.current !== null) {
+        window.clearTimeout(pollRef.current);
+      }
+    };
+  }, [provider, providerId, session]);
+
+  const copyUserCode = async () => {
+    if (session?.kind !== "device") {
+      return;
+    }
+    await navigator.clipboard.writeText(session.userCode);
+  };
+
+  const showCodeInput =
+    session?.kind === "code" &&
+    (providerId !== "chatgpt" || showPasteFallback || !listeningForCallback);
+
+  return (
+    <Dialog open={!!provider} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>
+            {provider ? t`Connect ${provider.displayName}` : t`Connect`}
+          </DialogTitle>
+          <DialogDescription>
+            {providerId === "claude"
+              ? t`Sign in with Claude Pro or Max. After you authorize, we'll pick up the code and finish connecting.`
+              : providerId === "chatgpt"
+                ? listeningForCallback
+                  ? t`Sign in with ChatGPT Plus or Pro. We'll open Mitschnitt and finish connecting.`
+                  : t`Sign in with ChatGPT Plus or Pro, then paste the redirect URL from your browser.`
+                : providerId === "github_copilot"
+                  ? t`Sign in with GitHub Copilot and enter the code below.`
+                  : providerId === "grok"
+                    ? t`Sign in with SuperGrok or X Premium+ and enter the code below.`
+                    : t`Paste an API key from your Kimi Code membership.`}
+          </DialogDescription>
+        </DialogHeader>
+        {isStarting ||
+        completeMutation.isPending ||
+        (session?.kind === "code" &&
+          (listeningForCallback || providerId === "claude")) ? (
+          <div className="text-muted-foreground flex items-center gap-2 text-sm">
+            <CircleNotch className="size-4 animate-spin" />
+            {isStarting ? (
+              <Trans>Opening sign-in…</Trans>
+            ) : completeMutation.isPending ? (
+              <Trans>Finishing connection…</Trans>
+            ) : (
+              <Trans>Waiting for authorization in your browser…</Trans>
+            )}
+          </div>
+        ) : null}
+        {session?.kind === "code" &&
+        listeningForCallback &&
+        !showPasteFallback ? (
+          <button
+            type="button"
+            className="text-muted-foreground hover:text-foreground self-start text-xs underline"
+            onClick={() => setShowPasteFallback(true)}
+          >
+            <Trans>Having trouble? Paste the redirect URL</Trans>
+          </button>
+        ) : null}
+        {showCodeInput ? (
+          <Input
+            value={code}
+            onChange={(event) => setCode(event.target.value)}
+            placeholder={
+              providerId === "chatgpt"
+                ? t`Paste the localhost redirect URL`
+                : t`Paste the authorization code`
+            }
+            autoFocus
+          />
+        ) : null}
+        {session?.kind === "device" ? (
+          <div className="flex flex-col gap-3">
+            <div className="bg-muted flex items-center justify-between rounded-xl px-3 py-2">
+              <span className="font-mono text-lg tracking-widest">
+                {session.userCode}
+              </span>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => void copyUserCode()}
+              >
+                <Copy className="size-4" />
+                <Trans>Copy</Trans>
+              </Button>
+            </div>
+            <p className="text-muted-foreground text-xs">
+              <Trans>Waiting for authorization in your browser…</Trans>
+            </p>
+          </div>
+        ) : null}
+        {session?.kind === "api_key" ? (
+          <div className="flex flex-col gap-2">
+            <Input
+              type="password"
+              value={apiKey}
+              onChange={(event) => setApiKey(event.target.value)}
+              placeholder={t`Kimi Code API key`}
+              autoFocus
+            />
+            <a
+              href={session.docsUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-muted-foreground hover:text-foreground text-xs underline"
+            >
+              <Trans>How to get a Kimi Code key</Trans>
+            </a>
+          </div>
+        ) : null}
+        {error ? <p className="text-destructive text-xs">{error}</p> : null}
+        <DialogFooter>
+          <Button
+            type="button"
+            variant="ghost"
+            onClick={() => onOpenChange(false)}
+          >
+            <Trans>Cancel</Trans>
+          </Button>
+          {showCodeInput || session?.kind === "api_key" ? (
+            <Button
+              type="button"
+              onClick={() => completeMutation.mutate(undefined)}
+              disabled={completeMutation.isPending}
+            >
+              {completeMutation.isPending ? (
+                <CircleNotch className="size-4 animate-spin" />
+              ) : null}
+              <Trans>Connect</Trans>
+            </Button>
+          ) : null}
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}

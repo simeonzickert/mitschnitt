@@ -1,0 +1,22 @@
+[package]
+name = "agent-access"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anlg-db-app = { workspace = true }
+anlg-tiptap = { workspace = true }
+
+schemars = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+specta = { workspace = true, features = ["derive", "serde_json"] }
+sqlx = { workspace = true, features = ["runtime-tokio", "sqlite"] }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["macros"] }
+utoipa = { workspace = true }
+uuid = { workspace = true, features = ["v4"] }
+
+[dev-dependencies]
+anlg-db-core = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt"] }

@@ -1,0 +1,22 @@
+const COMMANDS: &[&str] = &[
+    "models_dir",
+    "is_model_downloaded",
+    "is_model_downloading",
+    "download_model",
+    "cancel_download",
+    "delete_model",
+    "start_server",
+    "stop_server",
+    "get_server_for_model",
+    "get_servers",
+    "list_supported_models",
+    "list_supported_languages",
+    "inspect_custom_model_path",
+    "start_server_for_path",
+    "vocabulary_risky_aliases",
+    "vocabulary_proposals",
+];
+
+fn main() {
+    tauri_plugin::Builder::new(COMMANDS).build();
+}

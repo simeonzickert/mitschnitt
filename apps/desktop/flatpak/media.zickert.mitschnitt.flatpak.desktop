@@ -1,0 +1,14 @@
+[Desktop Entry]
+Name=Mitschnitt
+GenericName=Meeting Recorder
+Comment=Records meetings, transcribes them on this machine and keeps your notes next to the transcript
+Exec=mitschnitt %U
+Icon=media.zickert.mitschnitt.flatpak
+Terminal=false
+Type=Application
+Categories=Office;
+Keywords=notes;meeting;transcription;audio;recording;
+StartupNotify=true
+StartupWMClass=mitschnitt
+MimeType=x-scheme-handler/mitschnitt;
+X-GNOME-UsesNotifications=true

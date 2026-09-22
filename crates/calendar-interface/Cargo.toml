@@ -1,0 +1,14 @@
+[package]
+name = "calendar-interface"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+chrono = { workspace = true, features = ["serde"] }
+serde = { workspace = true, features = ["derive"] }
+# "chrono" muss hier stehen: die Typen unten tragen DateTime<Utc>. Bis zum
+# 01.09.2026 kam das Feature nur zufaellig herein, weil anlg-google-calendar
+# und anlg-outlook-calendar specta mit "chrono" zogen und cargo die Features
+# vereinigt. Mit dem Ausbau der Cloud-Schicht fielen beide weg -- und damit
+# eine Abhaengigkeit, die dieses Crate nie deklariert hatte.
+specta = { workspace = true, features = ["derive", "chrono"] }

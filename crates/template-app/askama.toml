@@ -1,0 +1,18 @@
+[general]
+dirs = ["assets"]
+
+# Alle Prompts dieses Crates sind Markdown, kein HTML. askama waehlt seinen
+# Maskierer aber nach der Dateiendung, und `.jinja` steht in seiner Werksliste
+# fuer den HTML-Maskierer -- ohne diese Zuordnung reist jedes `&`, `<`, `>`,
+# `"` und `'` als HTML-Entitaet in den Prompt. Gemessen am Lauf vom 04.09.2026:
+# das Transkript trug `I don&#39;t know`, und ein Vorlagentitel `Wins &
+# Challenges` waere als `Wins &#38; Challenges` beim Modell angekommen --
+# zusammen mit der Anweisung, ihn exakt zu uebernehmen. Dass das Modell es im
+# gemessenen Lauf stillschweigend repariert hat, war Glueck, keine Deckung.
+#
+# Die Zuordnung gilt projektweit statt pro Ableitung, weil der Fehler jede
+# `.jinja`-Datei dieses Crates trifft und jede kuenftige mit. Beleg:
+# enhance::tests::sonderzeichen_reisen_unmaskiert_durch_vorlage_und_transkript.
+[[escaper]]
+path = "::askama::filters::Text"
+extensions = ["jinja"]

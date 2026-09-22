@@ -1,0 +1,18 @@
+# audit-baseline.txt — bekannte, bewusst geduldete Advisories (Ratchet-Stand).
+# Neu schreiben nur mit Absicht: scripts/audit-gate.sh --baseline, dann committen.
+# Stand: 2026-09-11T22:44:16Z
+js	GHSA-73wf-gq98-2v4g
+js	GHSA-c83g-rgw3-j3cx
+js	GHSA-gpj5-g38j-94v9
+rust	RUSTSEC-2023-0071
+rust	RUSTSEC-2025-0111
+rust	RUSTSEC-2025-0140
+rust	RUSTSEC-2026-0098
+rust	RUSTSEC-2026-0099
+rust	RUSTSEC-2026-0104
+rust	RUSTSEC-2026-0185
+rust	RUSTSEC-2026-0194
+rust	RUSTSEC-2026-0195
+rust	RUSTSEC-2026-0204
+rust	RUSTSEC-2026-0258
+rust	RUSTSEC-2026-0274

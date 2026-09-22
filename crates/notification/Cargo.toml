@@ -1,0 +1,23 @@
+[package]
+name = "notification"
+version = "0.1.0"
+edition = "2024"
+
+[features]
+default = ["legacy"]
+legacy = ["dep:anlg-notification-macos", "dep:anlg-notification-linux", "dep:anlg-notification-windows"]
+
+[dependencies]
+serde = { workspace = true, features = ["derive"] }
+tracing = { workspace = true }
+
+anlg-notification-interface = { workspace = true }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+anlg-notification-macos = { path = "../notification-macos", package = "notification-macos", optional = true }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+anlg-notification-linux = { path = "../notification-linux", package = "notification-linux", optional = true }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+anlg-notification-windows = { path = "../notification-windows", package = "notification-windows", optional = true }

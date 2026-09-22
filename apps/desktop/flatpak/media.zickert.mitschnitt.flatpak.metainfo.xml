@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>media.zickert.mitschnitt.flatpak</id>
+
+  <name>Mitschnitt</name>
+  <summary>Meeting recorder with local transcription</summary>
+
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT</project_license>
+
+  <description>
+    <p>
+      Mitschnitt records microphone and computer audio during meetings,
+      transcribes the recording on this machine, and keeps your notes next to
+      the transcript. It is a fork of the MIT-licensed anarlog desktop app;
+      the licence file ships with the application.
+    </p>
+    <p>Features include:</p>
+    <ul>
+      <li>Bot-free microphone and computer-audio capture</li>
+      <li>Live transcription with notes in the same workspace</li>
+      <li>Summaries with a provider of your choice, local or bring-your-own</li>
+      <li>A human-readable mirror of every meeting on disk</li>
+      <li>Reusable note templates</li>
+    </ul>
+  </description>
+
+  <launchable type="desktop-id">media.zickert.mitschnitt.flatpak.desktop</launchable>
+
+  <developer id="media.zickert">
+    <name>Zickert Media</name>
+  </developer>
+
+  <branding>
+    <color type="primary" scheme_preference="light">#0000ff</color>
+    <color type="primary" scheme_preference="dark">#0000ff</color>
+  </branding>
+
+  <content_rating type="oars-1.1" />
+
+  <supports>
+    <control>pointing</control>
+    <control>keyboard</control>
+  </supports>
+
+  <requires>
+    <display_length compare="ge">768</display_length>
+  </requires>
+
+  <categories>
+    <category>Office</category>
+  </categories>
+
+  <keywords>
+    <keyword>notes</keyword>
+    <keyword>meeting</keyword>
+    <keyword>transcription</keyword>
+    <keyword>audio</keyword>
+    <keyword>recording</keyword>
+    <keyword>speech-to-text</keyword>
+  </keywords>
+</component>

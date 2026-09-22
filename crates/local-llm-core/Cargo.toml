@@ -1,0 +1,20 @@
+[package]
+name = "local-llm-core"
+version = "0.1.0"
+edition = "2024"
+
+[features]
+specta = ["dep:specta"]
+
+[dependencies]
+anlg-file = { workspace = true }
+anlg-gguf = { workspace = true }
+anlg-lmstudio = { workspace = true }
+anlg-local-model = { workspace = true }
+
+dirs = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+
+specta = { workspace = true, optional = true }

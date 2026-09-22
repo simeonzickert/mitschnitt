@@ -1,0 +1,1133 @@
+import { Trans, useLingui } from "@lingui/react/macro";
+import {
+  Check,
+  CircleNotch,
+  FolderOpen,
+  Trash,
+  Warning,
+} from "@phosphor-icons/react";
+import {
+  useMutation,
+  useQueries,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
+import { useRef, useState } from "react";
+
+import {
+  commands as localSttCommands,
+  type LocalModel,
+} from "@anlg/plugin-local-stt";
+import { commands as miscCommands } from "@anlg/plugin-misc";
+import { commands as openerCommands } from "@anlg/plugin-opener2";
+import type { AIProviderStorage } from "@anlg/store";
+import { Input } from "@anlg/ui/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectLabel,
+  SelectSeparator,
+  SelectTrigger,
+  SelectValue,
+} from "@anlg/ui/components/ui/select";
+import { sonnerToast } from "@anlg/ui/components/ui/toast";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@anlg/ui/components/ui/tooltip";
+import { cn } from "@anlg/utils";
+
+import { useSttSettings } from "./context";
+import { HealthStatusIndicator, useConnectionHealth } from "./health";
+import { LocalFileModel } from "./local-file-model";
+import { LocalModelBackendBadge, LocalModelLabel } from "./model-icon";
+import { recommendOnDeviceModel } from "./on-device-recommendation";
+import {
+  getDefaultSttSelection,
+  getLanguageSupportIssue,
+  resolveLiveLanguageSupportMode,
+} from "./selection";
+import {
+  displayModelLabel,
+  formatDownloadProgress,
+  formatModelSize,
+  isDeprecatedSttModel,
+  type ProviderId,
+  PROVIDERS,
+  sttModelQueries,
+} from "./shared";
+
+import { useNotifications } from "~/contexts/notifications";
+import { providerRowId, ProviderIconSlot } from "~/settings/ai/shared";
+import { getProviderSelectionBlockers } from "~/settings/ai/shared/eligibility";
+import { PersistAiSelection } from "~/settings/ai/shared/persist-selection";
+import { groupProviders } from "~/settings/ai/shared/provider-groups";
+import { ProviderListToggle } from "~/settings/ai/shared/provider-list-toggle";
+import {
+  getConfiguredProviderIds,
+  getConfiguredProviders,
+  getVisibleModelSelection,
+} from "~/settings/ai/shared/selection";
+import { getBaseLanguageDisplayName } from "~/settings/general/language";
+import { useAiProvidersState } from "~/settings/providers";
+import { useSetSettingValues } from "~/settings/queries";
+import { useConfigValues } from "~/shared/config";
+import { useMountEffect } from "~/shared/hooks/useMountEffect";
+import { SettingsAlertToast } from "~/shared/ui/settings-alert";
+import {
+  canAppleSpeechTranscribe,
+  isConfiguredSttModel,
+  getSttModelTranscriptionMode,
+  isDesktopLocalSttAvailable,
+  isLiveTranscriptionSupported,
+  isLocalFileSttModel,
+  isOnDeviceSttModel,
+  isRealtimeLocalModel,
+  isSupportedLanguagesBatch,
+  isSupportedLanguagesLive,
+  isSupportedLocalSttModel,
+} from "~/stt/capabilities";
+import {
+  getDefaultSttModel,
+  getPreferredProviderModel,
+} from "~/stt/model-selection";
+
+// Zuerst die eingebauten, lokal laufenden Modelle (die brauchen keinen
+// Schluessel und keine Kreditkarte), danach die gebraeuchlichen
+// Cloud-Anbieter, zuletzt der eigene Endpunkt. Der lange Rest steckt hinter
+// "Weitere"; es wird kein Anbieter entfernt.
+export const STT_PRIMARY_PROVIDER_IDS = [
+  "soniqo",
+  "apple_speech",
+  "whispercpp",
+  "local_file",
+  "openai",
+  "groq",
+  "google_generative_ai",
+  "elevenlabs",
+  "custom",
+] as const;
+
+// stt/shared.tsx exportiert seinen lokalen Provider-Typ nicht (bleibt
+// unangetastet), daher hier aus dem tatsaechlichen Element-Typ von PROVIDERS
+// abgeleitet.
+type Provider = (typeof PROVIDERS)[number];
+
+function ProviderOption({
+  provider,
+  configured,
+}: {
+  provider: Provider;
+  configured: boolean;
+}) {
+  return (
+    <SelectItem
+      value={provider.id}
+      disabled={provider.disabled}
+      className={cn([
+        "data-disabled:text-muted-foreground data-disabled:!opacity-100",
+        !configured && "text-muted-foreground",
+      ])}
+    >
+      <div className="flex flex-col gap-0.5">
+        <div className="flex items-center gap-2">
+          <ProviderIconSlot>{provider.icon}</ProviderIconSlot>
+          <span>{provider.displayName}</span>
+        </div>
+      </div>
+    </SelectItem>
+  );
+}
+
+export function SelectProviderAndModel() {
+  const { t } = useLingui();
+  const { current_stt_provider, current_stt_model } = useConfigValues([
+    "current_stt_provider",
+    "current_stt_model",
+  ] as const);
+  const { providers: configuredProviders, isReady: providerSettingsReady } =
+    useConfiguredMapping();
+  const { startDownload } = useSttSettings();
+  const health = useConnectionHealth();
+  const [pendingProvider, setPendingProvider] = useState<ProviderId | null>(
+    null,
+  );
+  const [showAllProviders, setShowAllProviders] = useState(false);
+
+  const selectedSttModel = isConfiguredSttModel(
+    current_stt_provider,
+    current_stt_model,
+  )
+    ? current_stt_model
+    : undefined;
+  const selectedProvider = current_stt_provider as ProviderId | undefined;
+  const selectedProviderConfigured = selectedProvider
+    ? (configuredProviders[selectedProvider]?.configured ?? false)
+    : false;
+  const visibleSelection = getVisibleModelSelection(
+    selectedProvider,
+    selectedSttModel,
+    selectedProviderConfigured,
+  );
+  const selectableProviders = PROVIDERS.filter(({ disabled }) => !disabled);
+  const configuredProviderIds = getConfiguredProviderIds(
+    selectableProviders,
+    configuredProviders,
+    selectedProvider,
+  );
+  const defaultSelection =
+    providerSettingsReady && !visibleSelection.model
+      ? getDefaultSttSelection(
+          configuredProviderIds,
+          configuredProviders,
+          selectedProvider,
+          current_stt_model,
+        )
+      : null;
+  const effectiveSelection = pendingProvider
+    ? { provider: pendingProvider, model: "" }
+    : (defaultSelection ?? visibleSelection);
+  const visibleProvider = effectiveSelection.provider as ProviderId | "";
+  const isConfigured = !!(visibleProvider && effectiveSelection.model);
+  const hasError = isConfigured && health.status === "error";
+  const alertDescription = !providerSettingsReady
+    ? undefined
+    : !isConfigured
+      ? t`Choose a transcription model to start listening.`
+      : hasError
+        ? health.message
+        : undefined;
+  const selectedModels = visibleProvider
+    ? (configuredProviders[visibleProvider]?.models ?? [])
+    : [];
+  const displayedSttModel =
+    visibleProvider === "custom"
+      ? effectiveSelection.model
+      : effectiveSelection.model
+        ? getPreferredProviderModel(effectiveSelection.model, selectedModels, {
+            keepUnavailableSavedModel: true,
+          })
+        : undefined;
+  const selectedModel = selectedModels.find(
+    (model) => model.id === displayedSttModel,
+  );
+  const providerOptions = getConfiguredProviders(
+    selectableProviders,
+    configuredProviders,
+  );
+
+  const setSelection = useSetSettingValues();
+  const lastSelectedModelsRef = useRef<Record<string, string>>(
+    current_stt_provider && selectedSttModel
+      ? { [current_stt_provider]: selectedSttModel }
+      : {},
+  );
+  const rememberModel = (provider?: string, model?: string) => {
+    if (!provider || model === undefined) {
+      return;
+    }
+
+    lastSelectedModelsRef.current[provider] = model;
+  };
+
+  const handleProviderChange = (provider: string) => {
+    rememberModel(current_stt_provider, selectedSttModel);
+
+    const providerId = provider as ProviderId;
+    const nextModels = configuredProviders[providerId]?.models ?? [];
+    const nextModel =
+      getPreferredProviderModel(
+        lastSelectedModelsRef.current[provider],
+        nextModels,
+        { allowSavedModelWithoutChoices: providerId === "custom" },
+      ) ||
+      getDefaultSttModel(providerId) ||
+      "";
+
+    if (!nextModel) {
+      setPendingProvider(providerId);
+      return;
+    }
+
+    setPendingProvider(null);
+    rememberModel(provider, nextModel);
+    setSelection({
+      current_stt_provider: provider,
+      current_stt_model: nextModel,
+    });
+  };
+
+  const handleModelChange = (model: string) => {
+    if (!visibleProvider) {
+      return;
+    }
+
+    rememberModel(visibleProvider, model);
+    setPendingProvider(null);
+    setSelection({
+      current_stt_provider: visibleProvider,
+      current_stt_model: model,
+    });
+  };
+
+  const groups = groupProviders(providerOptions, STT_PRIMARY_PROVIDER_IDS, {
+    selectedId: visibleProvider,
+    configuredIds: configuredProviderIds,
+  });
+
+  return (
+    <div className="flex flex-col gap-4">
+      {defaultSelection && !pendingProvider ? (
+        <PersistAiSelection
+          key={`stt:${defaultSelection.provider}:${defaultSelection.model}`}
+          type="stt"
+          provider={defaultSelection.provider}
+          model={defaultSelection.model}
+        />
+      ) : null}
+      <SettingsAlertToast
+        id="stt-settings-alert"
+        description={alertDescription}
+        variant={hasError ? "error" : "warning"}
+        lifecycle="condition-bound"
+      />
+      {!alertDescription && <TranscriptionLanguageWarningToast />}
+
+      <h3 className="text-md font-sans font-semibold">
+        <Trans>Model being used</Trans>
+      </h3>
+      <div className="flex flex-row items-center gap-4">
+        <div className="min-w-0 flex-2" data-stt-provider-selector>
+          <Select value={visibleProvider} onValueChange={handleProviderChange}>
+            <SelectTrigger className="bg-card shadow-none focus:ring-0">
+              <SelectValue placeholder={t`Select a provider`} />
+            </SelectTrigger>
+            <SelectContent>
+              {groups.primary.map((provider) => (
+                <ProviderOption
+                  key={provider.id}
+                  provider={provider}
+                  configured={
+                    configuredProviders[provider.id]?.configured ?? false
+                  }
+                />
+              ))}
+              {!showAllProviders
+                ? groups.pinned.map((provider) => (
+                    <ProviderOption
+                      key={provider.id}
+                      provider={provider}
+                      configured={
+                        configuredProviders[provider.id]?.configured ?? false
+                      }
+                    />
+                  ))
+                : null}
+              {groups.others.length > 0 ? (
+                <>
+                  <SelectSeparator />
+                  <ProviderListToggle
+                    expanded={showAllProviders}
+                    onToggle={() => setShowAllProviders((value) => !value)}
+                  />
+                  {showAllProviders ? (
+                    <SelectGroup>
+                      <SelectLabel>{t`More providers`}</SelectLabel>
+                      {groups.others.map((provider) => (
+                        <ProviderOption
+                          key={provider.id}
+                          provider={provider}
+                          configured={
+                            configuredProviders[provider.id]?.configured ??
+                            false
+                          }
+                        />
+                      ))}
+                    </SelectGroup>
+                  ) : null}
+                </>
+              ) : null}
+            </SelectContent>
+          </Select>
+        </div>
+
+        <span className="text-muted-foreground">/</span>
+
+        {visibleProvider === "local_file" ? (
+          <div className="min-w-0 flex-3">
+            <LocalFileModel healthStatus={health.status} />
+          </div>
+        ) : visibleProvider === "custom" ? (
+          <div className="min-w-0 flex-3">
+            <Input
+              value={displayedSttModel || ""}
+              onChange={(event) => handleModelChange(event.target.value)}
+              className="text-xs"
+              placeholder={t`Enter a model identifier`}
+            />
+          </div>
+        ) : (
+          <div className="min-w-0 flex-3">
+            <Select
+              value={displayedSttModel || ""}
+              onValueChange={handleModelChange}
+              disabled={selectedModels.length === 0}
+            >
+              <SelectTrigger
+                className={cn([
+                  "bg-card text-left shadow-none focus:ring-0",
+                  "[&>span]:!flex [&>span]:w-full [&>span]:min-w-0 [&>span]:items-center [&>span]:justify-start [&>span]:gap-2 [&>span]:overflow-visible [&>span]:[-webkit-line-clamp:unset]",
+                  isConfigured && "[&>svg:last-child]:hidden",
+                ])}
+              >
+                <SelectValue placeholder={t`Select a model`}>
+                  {selectedModel ? (
+                    <ModelSelectedValue model={selectedModel} />
+                  ) : undefined}
+                </SelectValue>
+                {isConfigured && <HealthStatusIndicator />}
+                {isConfigured && health.status === "success" && (
+                  <Check className="-mr-1 h-4 w-4 shrink-0 text-green-600" />
+                )}
+              </SelectTrigger>
+              <SelectContent align="end">
+                {selectedModels.map((model, i) => {
+                  const prevCategory =
+                    i > 0 ? selectedModels[i - 1].category : null;
+                  const showHeader =
+                    model.category && model.category !== prevCategory;
+                  const categoryLabel = showHeader
+                    ? getModelCategoryLabel(model.category)
+                    : null;
+                  return (
+                    <span key={model.id}>
+                      {categoryLabel && (
+                        <div className="text-muted-foreground px-2 pt-2 pb-1 text-[11px] font-medium tracking-wide uppercase">
+                          {categoryLabel}
+                        </div>
+                      )}
+                      <ModelSelectItem
+                        model={model}
+                        onDownload={() => startDownload(model.id as LocalModel)}
+                      />
+                    </span>
+                  );
+                })}
+              </SelectContent>
+            </Select>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+const TRANSCRIPTION_LANGUAGE_WARNING_TOAST_ID =
+  "transcription-language-warning";
+const MAX_DISMISSED_TRANSCRIPTION_LANGUAGE_WARNINGS = 128;
+const DISMISSED_TRANSCRIPTION_LANGUAGE_WARNINGS_KEY =
+  "anarlog:dismissed-transcription-language-warnings";
+
+function rememberDismissedTranscriptionLanguageWarning(warningKey: string) {
+  try {
+    const warnings = readDismissedTranscriptionLanguageWarnings().filter(
+      (key) => key !== warningKey,
+    );
+    warnings.push(warningKey);
+    localStorage.setItem(
+      DISMISSED_TRANSCRIPTION_LANGUAGE_WARNINGS_KEY,
+      JSON.stringify(
+        warnings.slice(-MAX_DISMISSED_TRANSCRIPTION_LANGUAGE_WARNINGS),
+      ),
+    );
+  } catch {
+    return;
+  }
+}
+
+function isTranscriptionLanguageWarningDismissed(warningKey: string) {
+  return readDismissedTranscriptionLanguageWarnings().includes(warningKey);
+}
+
+function readDismissedTranscriptionLanguageWarnings(): string[] {
+  try {
+    const stored = JSON.parse(
+      localStorage.getItem(DISMISSED_TRANSCRIPTION_LANGUAGE_WARNINGS_KEY) ??
+        "[]",
+    );
+    return Array.isArray(stored)
+      ? stored.filter((key): key is string => typeof key === "string")
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+function TranscriptionLanguageWarningToast() {
+  const { i18n, t } = useLingui();
+  const warning = useTranscriptionLanguageWarning();
+
+  if (!warning || isTranscriptionLanguageWarningDismissed(warning.key)) {
+    return null;
+  }
+
+  const model = displayModelLabel(warning.model);
+  const unsupportedLanguages = warning.unsupportedLanguages.map((language) =>
+    getBaseLanguageDisplayName(language, i18n.locale),
+  );
+  // Apple Speech is limited to languages added in System Settings, so a language it
+  // supports needs a different fix than one it cannot transcribe at all.
+  const needsSystemSettings =
+    warning.model === "apple-speech"
+      ? warning.unsupportedLanguages
+          .filter((language) => canAppleSpeechTranscribe(language))
+          .map((language) => getBaseLanguageDisplayName(language, i18n.locale))
+      : [];
+
+  const description =
+    needsSystemSettings.length > 0
+      ? t`Add ${formatLanguageList(needsSystemSettings)} in System Settings > General > Language & Region to transcribe with ${model}, or choose another model.`
+      : unsupportedLanguages.length > 0
+        ? t`${model} can't transcribe ${formatLanguageList(unsupportedLanguages)}. Try another model or change your spoken languages.`
+        : t`${model} can't transcribe all selected languages together. Try another model or use fewer spoken languages.`;
+
+  return (
+    <TranscriptionLanguageWarningToastLifecycle
+      key={warning.key}
+      warningKey={warning.key}
+      description={description}
+      actionLabel={t`Got it`}
+    />
+  );
+}
+
+function TranscriptionLanguageWarningToastLifecycle({
+  warningKey,
+  description,
+  actionLabel,
+}: {
+  warningKey: string;
+  description: string;
+  actionLabel: string;
+}) {
+  useMountEffect(() => {
+    let shouldRememberDismissal = true;
+    sonnerToast.warning(description, {
+      id: TRANSCRIPTION_LANGUAGE_WARNING_TOAST_ID,
+      duration: Infinity,
+      icon: <Warning className="size-4 shrink-0 text-amber-500" />,
+      action: {
+        label: actionLabel,
+        onClick: () => {
+          shouldRememberDismissal = false;
+          rememberDismissedTranscriptionLanguageWarning(warningKey);
+          clearTranscriptionLanguageWarningToast();
+        },
+      },
+      onDismiss: () => {
+        if (shouldRememberDismissal) {
+          rememberDismissedTranscriptionLanguageWarning(warningKey);
+        }
+      },
+    });
+
+    return () => {
+      shouldRememberDismissal = false;
+      clearTranscriptionLanguageWarningToast();
+    };
+  });
+
+  return null;
+}
+
+function clearTranscriptionLanguageWarningToast() {
+  sonnerToast.dismiss(TRANSCRIPTION_LANGUAGE_WARNING_TOAST_ID);
+}
+
+function useTranscriptionLanguageWarning() {
+  const { current_stt_provider, current_stt_model, spoken_languages } =
+    useConfigValues([
+      "current_stt_provider",
+      "current_stt_model",
+      "spoken_languages",
+    ] as const);
+  const health = useConnectionHealth();
+
+  const selectedSttModel = isConfiguredSttModel(
+    current_stt_provider,
+    current_stt_model,
+  )
+    ? current_stt_model
+    : undefined;
+  const isConfigured = !!(current_stt_provider && selectedSttModel);
+  const isOnDeviceModel =
+    isOnDeviceSttModel(current_stt_provider, selectedSttModel) ||
+    isLocalFileSttModel(current_stt_provider, selectedSttModel);
+  const useLiveOnDeviceModel =
+    isOnDeviceModel && isRealtimeLocalModel(selectedSttModel);
+  const hasError = isConfigured && health.status === "error";
+  const liveSupport = useQuery({
+    queryKey: ["stt-live-support", current_stt_provider, selectedSttModel],
+    queryFn: () =>
+      isLiveTranscriptionSupported(current_stt_provider, selectedSttModel),
+    enabled: isConfigured,
+  });
+  const useLiveMode = resolveLiveLanguageSupportMode({
+    isOnDeviceModel,
+    useLiveOnDeviceModel,
+    liveSupported: liveSupport.data,
+  });
+
+  const languageSupportIssue = useQuery({
+    queryKey: [
+      "stt-language-support",
+      current_stt_provider,
+      selectedSttModel,
+      useLiveMode,
+      spoken_languages,
+    ],
+    queryFn: async () => {
+      const isSupported = (languages: readonly string[]) =>
+        useLiveMode
+          ? isSupportedLanguagesLive(
+              current_stt_provider!,
+              selectedSttModel ?? null,
+              languages,
+            )
+          : isSupportedLanguagesBatch(
+              current_stt_provider!,
+              selectedSttModel ?? null,
+              languages,
+            );
+
+      return await getLanguageSupportIssue(spoken_languages ?? [], isSupported);
+    },
+    enabled:
+      isConfigured &&
+      liveSupport.data !== undefined &&
+      !!spoken_languages?.length,
+  });
+
+  if (
+    !isConfigured ||
+    !selectedSttModel ||
+    !languageSupportIssue.data ||
+    hasError
+  ) {
+    return null;
+  }
+
+  return {
+    key: [
+      current_stt_provider,
+      selectedSttModel,
+      ...(spoken_languages ?? []),
+    ].join(":"),
+    model: selectedSttModel,
+    unsupportedLanguages: languageSupportIssue.data.unsupportedLanguages,
+  };
+}
+
+function formatLanguageList(languages: string[]) {
+  const visibleLanguages = languages.slice(0, 3);
+  const remainingCount = languages.length - visibleLanguages.length;
+
+  if (remainingCount > 0) {
+    visibleLanguages.push(`${remainingCount} more`);
+  }
+
+  return visibleLanguages.join(", ");
+}
+
+type ModelCategory = "hardware" | "latest" | null;
+type ModelEntry = {
+  id: string;
+  isDownloaded: boolean;
+  displayName?: string;
+  isDeprecated?: boolean;
+  category?: ModelCategory;
+  sizeBytes?: number | null;
+  mode?: "realtime" | "batch";
+};
+
+function getModelCategoryLabel(category?: ModelCategory) {
+  if (category === "latest") {
+    return "Recommended";
+  }
+
+  if (category === "hardware") {
+    return <Trans>Best for this Mac</Trans>;
+  }
+
+  return null;
+}
+
+function useConfiguredMapping(): {
+  providers: Record<
+    ProviderId,
+    {
+      configured: boolean;
+      models: ModelEntry[];
+    }
+  >;
+  isReady: boolean;
+} {
+  const { providers: configuredProviders, isReady } =
+    useAiProvidersState("stt");
+  const { local_stt_model_path } = useConfigValues([
+    "local_stt_model_path",
+  ] as const);
+
+  const deviceInfo = useQuery({
+    queryKey: ["device-info"],
+    queryFn: async () => {
+      const result = await miscCommands.getDeviceInfo(null);
+      return result.status === "ok" ? result.data : null;
+    },
+    staleTime: Infinity,
+  });
+
+  const supportedModels = useQuery({
+    queryKey: ["list-supported-models"],
+    queryFn: async () => {
+      const result = await localSttCommands.listSupportedModels();
+      return result.status === "ok" ? result.data : [];
+    },
+    staleTime: Infinity,
+  });
+
+  const localModels = supportedModels.data ?? [];
+  const soniqoModels = localModels.filter((m) => m.model_type === "soniqo");
+  // Listed only when the backend reports macOS 26 with Apple Speech available.
+  const appleSpeechModels = localModels.filter(
+    (m) => m.model_type === "appleSpeech",
+  );
+  // Fork-Abweichung (31.08.2026): Whisper hat einen eigenen Anbieter-Eintrag.
+  // Ohne diese Zeile holt der Picker das Modell zwar vom Backend, filtert es
+  // aber nie in eine Liste -- es waere unsichtbar, obwohl es in
+  // SUPPORTED_MODELS steht.
+  const whisperModels = localModels.filter(
+    (m) => m.model_type === "whispercpp",
+  );
+
+  const soniqoDownloaded = useQueries({
+    queries: [...soniqoModels.map((m) => sttModelQueries.isDownloaded(m.key))],
+  });
+
+  const appleSpeechDownloaded = useQueries({
+    queries: [
+      ...appleSpeechModels.map((m) => sttModelQueries.isDownloaded(m.key)),
+    ],
+  });
+
+  const whisperDownloaded = useQueries({
+    queries: [...whisperModels.map((m) => sttModelQueries.isDownloaded(m.key))],
+  });
+
+  const providers = Object.fromEntries(
+    PROVIDERS.map((provider) => {
+      const config = configuredProviders[providerRowId("stt", provider.id)] as
+        | AIProviderStorage
+        | undefined;
+      const baseUrl = String(config?.base_url || provider.baseUrl || "").trim();
+      const apiKey = String(config?.api_key || "").trim();
+
+      const eligible =
+        getProviderSelectionBlockers(provider.requirements, {
+          config: { base_url: baseUrl, api_key: apiKey },
+        }).length === 0;
+
+      if (!eligible) {
+        return [provider.id, { configured: false, models: [] }];
+      }
+
+      if (provider.id === "soniqo") {
+        const models = buildOnDeviceModelEntries(
+          soniqoModels,
+          soniqoDownloaded,
+          deviceInfo.data?.totalMemoryBytes,
+        );
+        return [provider.id, { configured: models.length > 0, models }];
+      }
+
+      if (provider.id === "apple_speech") {
+        const models = buildOnDeviceModelEntries(
+          appleSpeechModels,
+          appleSpeechDownloaded,
+          deviceInfo.data?.totalMemoryBytes,
+        );
+        return [provider.id, { configured: models.length > 0, models }];
+      }
+
+      if (provider.id === "whispercpp") {
+        const models = buildOnDeviceModelEntries(
+          whisperModels,
+          whisperDownloaded,
+          deviceInfo.data?.totalMemoryBytes,
+        );
+        return [provider.id, { configured: models.length > 0, models }];
+      }
+
+      if (provider.id === "local_file") {
+        const available = isDesktopLocalSttAvailable(
+          deviceInfo.data?.platform ?? "",
+          deviceInfo.data?.arch ?? "",
+        );
+        return [
+          provider.id,
+          {
+            configured: available,
+            models: [
+              {
+                id: "local-file",
+                isDownloaded: !!local_stt_model_path?.trim(),
+                mode: "batch" as const,
+              },
+            ],
+          },
+        ];
+      }
+
+      if (provider.id === "custom") {
+        return [provider.id, { configured: true, models: [] }];
+      }
+
+      return [
+        provider.id,
+        {
+          configured: true,
+          models: provider.models.map((model) => {
+            const mode = getSttModelTranscriptionMode(provider.id, model);
+            return {
+              id: model,
+              isDownloaded: true,
+              mode: mode === "live" ? "realtime" : mode,
+              isDeprecated: isDeprecatedSttModel(provider.id, model),
+            };
+          }),
+        },
+      ];
+    }),
+  ) as Record<
+    ProviderId,
+    {
+      configured: boolean;
+      models: ModelEntry[];
+    }
+  >;
+
+  return {
+    providers,
+    isReady: isReady && supportedModels.isFetched && deviceInfo.isFetched,
+  };
+}
+
+function buildOnDeviceModelEntries(
+  models: Array<{
+    key: LocalModel;
+    display_name: string;
+    size_bytes: number | null;
+    supports_realtime: boolean;
+    recommended_memory_bytes: number;
+  }>,
+  downloads: Array<{ data?: boolean }>,
+  totalMemoryBytes?: number,
+): ModelEntry[] {
+  const recommendedModel = recommendOnDeviceModel(
+    models.map((model) => ({
+      id: model.key,
+      recommendedMemoryBytes: model.recommended_memory_bytes,
+    })),
+    totalMemoryBytes,
+  );
+
+  return models
+    .map((model, index) => ({
+      id: model.key,
+      isDownloaded: downloads[index]?.data ?? false,
+      displayName: model.display_name,
+      sizeBytes: model.size_bytes,
+      mode: model.supports_realtime
+        ? ("realtime" as const)
+        : ("batch" as const),
+      category: model.key === recommendedModel ? ("hardware" as const) : null,
+    }))
+    .sort(
+      (a, b) =>
+        Number(b.id === recommendedModel) - Number(a.id === recommendedModel),
+    );
+}
+
+function ModelSelectItem({
+  model,
+  onDownload,
+}: {
+  model: ModelEntry;
+  onDownload: () => void;
+}) {
+  const { activeDownloads } = useNotifications();
+  const { queuedDownloads } = useSttSettings();
+  const downloadInfo = activeDownloads.find((d) => d.model === model.id);
+  const isDownloading =
+    !!downloadInfo || queuedDownloads.includes(model.id as LocalModel);
+
+  const label = displayModelLabel(model.id, model.displayName);
+  const sizeLabel = formatModelSize(model.sizeBytes);
+  const showLocalActions = model.isDownloaded && isLocalModelId(model.id);
+  const isDeprecated = model.isDeprecated === true;
+  const content = (
+    <div className="flex min-w-0 flex-1 items-center justify-between gap-3">
+      <LocalModelLabel
+        model={model.id}
+        label={label}
+        title={label}
+        className="min-w-0 flex-1"
+      />
+      <div className="flex shrink-0 items-center gap-2 text-[11px]">
+        <LocalModelBackendBadge model={model.id} />
+        {isDeprecated && <DeprecatedBadge />}
+        {model.mode !== "realtime" && <ModelModeBadge mode={model.mode} />}
+        {!model.isDownloaded && sizeLabel && (
+          <span className="text-muted-foreground font-mono">{sizeLabel}</span>
+        )}
+      </div>
+    </div>
+  );
+
+  if (model.isDownloaded) {
+    return (
+      <div className="group/model-row relative overflow-hidden rounded-full has-[[data-model-actions-pending]]:[&>*:first-child>span:first-child]:opacity-0">
+        <SelectItem
+          key={model.id}
+          value={model.id}
+          className={cn([
+            "group-hover/model-row:bg-accent group-hover/model-row:text-accent-foreground",
+            showLocalActions &&
+              "pr-20 group-focus-within/model-row:[&>span:first-child]:opacity-0 group-hover/model-row:[&>span:first-child]:opacity-0",
+            isDeprecated && "text-muted-foreground focus:text-muted-foreground",
+          ])}
+        >
+          {content}
+        </SelectItem>
+        {showLocalActions && (
+          <LocalModelDropdownActions model={model.id as LocalModel} />
+        )}
+      </div>
+    );
+  }
+
+  const handleAction = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (isDownloading) {
+      return;
+    }
+    onDownload();
+  };
+
+  return (
+    <div
+      className={cn([
+        "relative flex items-center justify-between",
+        "rounded-full py-1.5 text-sm outline-hidden",
+        "px-2",
+        "cursor-pointer select-none",
+        "hover:bg-accent hover:text-accent-foreground",
+        "group",
+      ])}
+    >
+      <div className="text-muted-foreground min-w-0 flex-1">{content}</div>
+      {isDownloading ? (
+        <span
+          className={cn([
+            "rounded-full px-2 py-0.5 text-[11px] font-medium",
+            "flex items-center gap-1",
+            "from-muted to-accent text-muted-foreground bg-linear-to-t",
+          ])}
+        >
+          <CircleNotch className="size-3 animate-spin" />
+          {downloadInfo ? (
+            formatDownloadProgress(downloadInfo.progress)
+          ) : (
+            <Trans>Starting</Trans>
+          )}
+        </span>
+      ) : (
+        <button
+          className={cn([
+            "rounded-full px-2 text-[11px] font-medium",
+            "opacity-0 group-hover:opacity-100",
+            "transition-all duration-150",
+            "from-muted to-accent text-foreground bg-linear-to-t py-0.5 shadow-xs hover:shadow-md",
+          ])}
+          onClick={handleAction}
+        >
+          <Trans>Download</Trans>
+        </button>
+      )}
+    </div>
+  );
+}
+
+function ModelSelectedValue({ model }: { model: ModelEntry }) {
+  const isDeprecated = model.isDeprecated === true;
+  const label = displayModelLabel(model.id, model.displayName);
+
+  return (
+    <div className="flex max-w-full min-w-0 items-center gap-2">
+      <LocalModelLabel
+        model={model.id}
+        label={label}
+        title={label}
+        className={cn(["min-w-0", isDeprecated && "opacity-60"])}
+        labelClassName={cn([isDeprecated && "text-muted-foreground"])}
+      />
+      {isDeprecated && <DeprecatedBadge />}
+      <ModelModeBadge mode={model.mode} />
+    </div>
+  );
+}
+
+function DeprecatedBadge() {
+  return (
+    <span
+      className={cn([
+        "shrink-0 rounded-md px-1.5 py-0.5 text-[11px] font-medium",
+        "bg-amber-50 text-amber-800",
+      ])}
+    >
+      <Trans>Deprecated</Trans>
+    </span>
+  );
+}
+
+function ModelModeBadge({ mode }: { mode?: ModelEntry["mode"] }) {
+  if (!mode) {
+    return null;
+  }
+
+  const isRealtime = mode === "realtime";
+
+  return (
+    <Tooltip delayDuration={100}>
+      <TooltipTrigger asChild>
+        <span
+          className={cn([
+            "shrink-0 cursor-help rounded-md px-1.5 py-0.5 text-[11px] font-medium",
+            isRealtime
+              ? "bg-sky-50 text-sky-700"
+              : "bg-muted text-muted-foreground",
+          ])}
+        >
+          {isRealtime ? <Trans>Live</Trans> : <Trans>After recording</Trans>}
+        </span>
+      </TooltipTrigger>
+      <TooltipContent side="top" className="max-w-64 text-xs">
+        {isRealtime ? (
+          <Trans>Can transcribe while the meeting is happening.</Trans>
+        ) : (
+          <Trans>
+            Runs after the recording finishes, not during the meeting.
+          </Trans>
+        )}
+      </TooltipContent>
+    </Tooltip>
+  );
+}
+
+function isLocalModelId(model: string): model is LocalModel {
+  return isSupportedLocalSttModel(model);
+}
+
+function LocalModelDropdownActions({ model }: { model: LocalModel }) {
+  const { t } = useLingui();
+  const queryClient = useQueryClient();
+
+  const stopSelect = (event: React.SyntheticEvent<HTMLButtonElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+  };
+
+  const handleOpen = () => {
+    const resultPromise = String(model).startsWith("soniqo-")
+      ? localSttCommands.soniqoModelDir(model)
+      : localSttCommands.modelsDir();
+
+    void resultPromise.then((result) => {
+      if (result.status === "ok") {
+        void openerCommands.openPath(result.data, null);
+      }
+    });
+  };
+
+  const deleteModel = useMutation({
+    mutationFn: () => localSttCommands.deleteModel(model),
+    onSuccess: (result) => {
+      if (result.status === "ok") {
+        void queryClient.invalidateQueries({
+          queryKey: sttModelQueries.isDownloaded(model).queryKey,
+        });
+      }
+    },
+  });
+
+  const handleDelete = () => {
+    if (deleteModel.isPending) {
+      return;
+    }
+    deleteModel.mutate();
+  };
+
+  return (
+    <div
+      data-model-actions-pending={deleteModel.isPending || undefined}
+      className={cn([
+        "absolute top-0 right-0 bottom-0 flex items-center justify-end gap-1 rounded-r-full pl-6",
+        "pointer-events-none opacity-0 transition-opacity duration-150",
+        "group-hover/model-row:pointer-events-auto group-hover/model-row:opacity-100",
+        "group-focus-within/model-row:pointer-events-auto group-focus-within/model-row:opacity-100",
+        deleteModel.isPending && "pointer-events-auto opacity-100",
+      ])}
+    >
+      <button
+        type="button"
+        aria-label={t`Show in Finder`}
+        className={cn([
+          "flex size-6 items-center justify-center rounded-full",
+          "text-muted-foreground hover:text-foreground",
+        ])}
+        onPointerDown={stopSelect}
+        onClick={(event) => {
+          stopSelect(event);
+          handleOpen();
+        }}
+      >
+        <FolderOpen className="size-3.5" />
+      </button>
+      <button
+        type="button"
+        aria-label={t`Delete model`}
+        disabled={deleteModel.isPending}
+        className={cn([
+          "flex size-6 items-center justify-center rounded-full",
+          "text-red-500 hover:text-red-600",
+          "disabled:opacity-70",
+        ])}
+        onPointerDown={stopSelect}
+        onClick={(event) => {
+          stopSelect(event);
+          handleDelete();
+        }}
+      >
+        {deleteModel.isPending ? (
+          <CircleNotch className="size-3.5 animate-spin" />
+        ) : (
+          <Trash className="size-3.5" />
+        )}
+      </button>
+    </div>
+  );
+}

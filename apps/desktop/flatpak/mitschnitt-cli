@@ -1,0 +1,16 @@
+#!/bin/sh
+
+if [ "${FLATPAK_ID:-}" = "media.zickert.mitschnitt" ]; then
+  exec /app/libexec/mitschnitt-cli "$@"
+fi
+
+# A sandbox neither inherits the caller's working directory nor can read it, so
+# relative paths passed to commands (for example a --db-path) would resolve
+# inside the sandbox instead of where the user ran the command.
+caller_dir=$(pwd)
+
+exec flatpak run \
+  --filesystem="$caller_dir" \
+  --cwd="$caller_dir" \
+  --command=/app/libexec/mitschnitt-cli \
+  media.zickert.mitschnitt "$@"

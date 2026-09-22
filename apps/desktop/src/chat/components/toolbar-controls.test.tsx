@@ -1,0 +1,305 @@
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import type { ReactNode } from "react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const mocks = vi.hoisted(() => ({
+  useRecentChatGroups: vi.fn(() => []),
+}));
+
+vi.mock("@anlg/ui/components/ui/button", () => ({
+  Button: ({
+    children,
+    className,
+    ...props
+  }: React.ButtonHTMLAttributes<HTMLButtonElement>) => (
+    <button className={className} type="button" {...props}>
+      {children}
+    </button>
+  ),
+}));
+
+vi.mock("@anlg/ui/components/ui/dropdown-menu", () => ({
+  AppFloatingPanel: ({
+    children,
+    className,
+  }: {
+    children: ReactNode;
+    className?: string;
+  }) => (
+    <div className={className} data-testid="chat-history-panel">
+      {children}
+    </div>
+  ),
+  DropdownMenu: ({ children }: { children: ReactNode }) => (
+    <div>{children}</div>
+  ),
+  DropdownMenuContent: ({
+    avoidCollisions,
+    children,
+    className,
+    collisionPadding,
+    side,
+    sideOffset,
+  }: {
+    avoidCollisions?: boolean;
+    children: ReactNode;
+    className?: string;
+    collisionPadding?: number;
+    side?: string;
+    sideOffset?: number;
+  }) => (
+    <div
+      className={className}
+      data-avoid-collisions={String(avoidCollisions)}
+      data-collision-padding={collisionPadding}
+      data-side={side}
+      data-side-offset={sideOffset}
+      data-testid="chat-history-menu"
+    >
+      {children}
+    </div>
+  ),
+  DropdownMenuTrigger: ({ children }: { children: ReactNode }) => (
+    <>{children}</>
+  ),
+}));
+
+vi.mock("~/chat/store/queries", () => ({
+  useRecentChatGroups: mocks.useRecentChatGroups,
+}));
+
+import { ChatToolbarControls } from "./toolbar-controls";
+
+describe("ChatToolbarControls", () => {
+  beforeEach(() => {
+    cleanup();
+    mocks.useRecentChatGroups.mockClear();
+  });
+
+  it("renders the dark chat history trigger as a pill button", () => {
+    render(
+      <ChatToolbarControls
+        chatScope="general"
+        currentChatGroupId={undefined}
+        onNewChat={vi.fn()}
+        onOpenRightPanel={vi.fn()}
+        onSelectChat={vi.fn()}
+        surface="dark"
+      />,
+    );
+
+    const historyButton = screen.getByRole("button", { name: "Chat history" });
+    expect(historyButton.className).toContain("rounded-full");
+    expect(historyButton.className).toContain("h-8");
+    expect(historyButton.className).toContain("w-auto");
+    expect(historyButton.className).toContain("gap-1.5");
+    expect(historyButton.className).toContain("hover:bg-primary-foreground/14");
+    expect(screen.queryByText("Ask Mitschnitt AI anything")).toBeNull();
+  });
+
+  it("renders the light chat history trigger without title text", () => {
+    const { container } = render(
+      <ChatToolbarControls
+        chatScope="general"
+        currentChatGroupId={undefined}
+        onNewChat={vi.fn()}
+        onOpenRightPanel={vi.fn()}
+        onSelectChat={vi.fn()}
+        surface="light"
+      />,
+    );
+
+    const historyButton = screen.getByRole("button", { name: "Chat history" });
+    expect(container.firstElementChild?.className).toContain("px-3");
+    expect(container.firstElementChild?.className).not.toContain("pl-2");
+    expect(container.firstElementChild?.className).not.toContain("pr-2");
+    expect(historyButton.className).toContain("-ml-2");
+    expect(historyButton.className).toContain("h-8");
+    expect(historyButton.className).toContain("w-auto");
+    expect(historyButton.className).toContain("gap-1.5");
+    expect(historyButton.className).toContain("text-muted-foreground");
+    expect(historyButton.className).toContain("hover:bg-muted/80");
+    expect(historyButton.textContent).toBe("");
+    expect(screen.queryByText("Ask Mitschnitt AI anything")).toBeNull();
+  });
+
+  it("opens floating chat history to the right and adapts to viewport collisions", () => {
+    render(
+      <ChatToolbarControls
+        chatScope="general"
+        currentChatGroupId={undefined}
+        layout="floating"
+        onNewChat={vi.fn()}
+        onOpenRightPanel={vi.fn()}
+        onSelectChat={vi.fn()}
+        surface="light"
+      />,
+    );
+
+    const menu = screen.getByTestId("chat-history-menu");
+    const panel = screen.getByTestId("chat-history-panel");
+
+    expect(menu.dataset.side).toBe("right");
+    expect(menu.dataset.sideOffset).toBe("4");
+    expect(menu.dataset.avoidCollisions).toBe("true");
+    expect(menu.dataset.collisionPadding).toBe("8");
+    expect(menu.className).toContain("w-72");
+    expect(menu.className).toContain(
+      "max-w-[var(--radix-dropdown-menu-content-available-width)]",
+    );
+    expect(menu.className).toContain(
+      "max-h-[min(20rem,var(--radix-dropdown-menu-content-available-height))]",
+    );
+    expect(menu.className).toContain("overflow-y-auto");
+    expect(panel.className).not.toContain("overflow-y-auto");
+  });
+
+  it("keeps right-panel chat history below the trigger", () => {
+    render(
+      <ChatToolbarControls
+        chatScope="general"
+        currentChatGroupId={undefined}
+        layout="right-panel"
+        onNewChat={vi.fn()}
+        onOpenFloating={vi.fn()}
+        onSelectChat={vi.fn()}
+        surface="light"
+      />,
+    );
+
+    expect(screen.getByTestId("chat-history-menu").dataset.side).toBe("bottom");
+  });
+
+  it("renders dark toolbar action buttons as circles without tooltips", () => {
+    render(
+      <ChatToolbarControls
+        chatScope="general"
+        currentChatGroupId={undefined}
+        onClose={vi.fn()}
+        onNewChat={vi.fn()}
+        onOpenRightPanel={vi.fn()}
+        onSelectChat={vi.fn()}
+        surface="dark"
+      />,
+    );
+
+    const newChatButton = screen.getByRole("button", { name: "New chat" });
+    const rightPanelButton = screen.getByRole("button", {
+      name: "Open in right panel",
+    });
+
+    expect(newChatButton.className).toContain("rounded-full");
+    expect(newChatButton.className).toContain(
+      "hover:!bg-primary-foreground/14",
+    );
+    expect(newChatButton.getAttribute("title")).toBeNull();
+    expect(rightPanelButton.className).toContain("rounded-full");
+    expect(rightPanelButton.className).toContain(
+      "hover:!bg-primary-foreground/14",
+    );
+    expect(rightPanelButton.getAttribute("title")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Close chat" })).toBeNull();
+  });
+
+  it("renders floating toolbar actions without a close button", () => {
+    const onClose = vi.fn();
+    const onOpenRightPanel = vi.fn();
+
+    const { container } = render(
+      <ChatToolbarControls
+        chatScope="general"
+        currentChatGroupId={undefined}
+        layout="floating"
+        onClose={onClose}
+        onNewChat={vi.fn()}
+        onOpenRightPanel={onOpenRightPanel}
+        onSelectChat={vi.fn()}
+        surface="light"
+      />,
+    );
+
+    const rightPanelButton = screen.getByRole("button", {
+      name: "Open in right panel",
+    });
+    const actions = container.querySelector("[data-chat-toolbar-actions]");
+
+    fireEvent.click(rightPanelButton);
+
+    expect(actions?.className).toContain("gap-0");
+    expect(actions?.className).not.toContain("gap-1");
+    expect(rightPanelButton.className).toContain("hover:!bg-muted/80");
+    expect(onOpenRightPanel).toHaveBeenCalled();
+    expect(onClose).not.toHaveBeenCalled();
+    expect(screen.queryByRole("button", { name: "Close chat" })).toBeNull();
+  });
+
+  it("uses sidebar-matched toolbar metrics in the right panel", () => {
+    const onClose = vi.fn();
+    const onOpenFloating = vi.fn();
+    const { container } = render(
+      <ChatToolbarControls
+        chatScope="general"
+        currentChatGroupId={undefined}
+        layout="right-panel"
+        onClose={onClose}
+        onNewChat={vi.fn()}
+        onOpenFloating={onOpenFloating}
+        onSelectChat={vi.fn()}
+        surface="light"
+      />,
+    );
+
+    const historyButton = screen.getByRole("button", { name: "Chat history" });
+    const toolbar = container.firstElementChild;
+
+    expect(toolbar?.className).toContain("pl-3");
+    expect(toolbar?.className).toContain("pr-1");
+    expect(toolbar?.className).not.toContain("px-5");
+    expect(toolbar?.className).not.toContain("px-3");
+    expect(toolbar?.className).not.toContain("pr-0");
+    expect(toolbar?.hasAttribute("data-tauri-drag-region")).toBe(true);
+    expect(
+      toolbar?.firstElementChild?.hasAttribute("data-tauri-drag-region"),
+    ).toBe(true);
+    const actions = container.querySelector("[data-chat-toolbar-actions]");
+    expect(actions?.hasAttribute("data-tauri-drag-region")).toBe(true);
+    expect(actions?.className).toContain("gap-0");
+    expect(actions?.className).not.toContain("gap-1");
+    expect(historyButton.className).toContain("-ml-2");
+    expect(historyButton.className).toContain("h-7");
+    expect(historyButton.className).toContain("w-auto");
+    expect(screen.queryByText("Ask Mitschnitt AI anything")).toBeNull();
+    const floatButton = screen.getByRole("button", { name: "Float chat" });
+    const closeButton = screen.getByRole("button", { name: "Close chat" });
+    expect(historyButton.getAttribute("data-tauri-drag-region")).toBe("false");
+    expect(floatButton.getAttribute("data-tauri-drag-region")).toBe("false");
+    expect(closeButton.getAttribute("data-tauri-drag-region")).toBe("false");
+    expect(floatButton.className).toContain("hover:!bg-muted/80");
+    expect(floatButton.className).toContain("hover:!text-foreground");
+    expect(floatButton.className).not.toContain("mr-1");
+    expect(closeButton.className).toContain("hover:!bg-muted/80");
+    expect(
+      screen.queryByRole("button", { name: "Open in right panel" }),
+    ).toBeNull();
+
+    fireEvent.click(floatButton);
+    fireEvent.click(closeButton);
+
+    expect(onOpenFloating).toHaveBeenCalled();
+    expect(onClose).toHaveBeenCalled();
+  });
+
+  it("loads history for the active chat scope", () => {
+    render(
+      <ChatToolbarControls
+        chatScope="automations"
+        currentChatGroupId={undefined}
+        onNewChat={vi.fn()}
+        onOpenRightPanel={vi.fn()}
+        onSelectChat={vi.fn()}
+      />,
+    );
+
+    expect(mocks.useRecentChatGroups).toHaveBeenCalledWith("automations", 5);
+  });
+});

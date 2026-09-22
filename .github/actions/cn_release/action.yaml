@@ -1,0 +1,98 @@
+name: Run CrabNebula release command
+description: Run the project-pinned CrabNebula CLI for a release operation
+
+inputs:
+  raw:
+    description: "raw"
+    required: false
+    default: ""
+  key:
+    description: "key"
+    required: true
+  cmd:
+    description: "cmd"
+    required: false
+  app:
+    description: "app"
+    required: false
+  channel:
+    description: "channel"
+    required: false
+  working-directory:
+    description: "working-directory"
+    required: false
+  framework:
+    description: "framework"
+    required: false
+    default: ""
+  version:
+    description: "version"
+    required: false
+    default: ""
+
+outputs:
+  raw:
+    description: "Output from raw command"
+    value: ${{ steps.raw.outputs.stdout }}
+  cli-version:
+    description: "Verified CrabNebula CLI version"
+    value: ${{ steps.install.outputs.version }}
+  cli-asset-id:
+    description: "Immutable CrabNebula CLI asset ID"
+    value: ${{ steps.install.outputs.asset-id }}
+  cli-sha256:
+    description: "Verified CrabNebula CLI SHA-256"
+    value: ${{ steps.install.outputs.sha256 }}
+
+runs:
+  using: "composite"
+  steps:
+    - id: install
+      uses: ./.github/actions/cn_install
+    - id: raw
+      if: inputs.raw != ''
+      shell: bash
+      env:
+        CLI_PATH: ${{ steps.install.outputs.path }}
+        CN_API_KEY: ${{ inputs.key }}
+        RAW_COMMAND: ${{ inputs.raw }}
+      run: |
+        read -r -a arguments <<< "$RAW_COMMAND"
+        stdout=$("$CLI_PATH" "${arguments[@]}")
+        printf '%s\n' "$stdout"
+        {
+          echo "stdout<<CN_OUTPUT_EOF"
+          printf '%s\n' "$stdout"
+          echo "CN_OUTPUT_EOF"
+        } >> "$GITHUB_OUTPUT"
+    - if: inputs.raw == '' && inputs.framework == 'tauri'
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        APP: ${{ inputs.app }}
+        CHANNEL: ${{ inputs.channel }}
+        CLI_PATH: ${{ steps.install.outputs.path }}
+        CMD: ${{ inputs.cmd }}
+        CN_API_KEY: ${{ inputs.key }}
+      run: |
+        arguments=(release "$CMD" "$APP" --framework tauri)
+        if [[ -n "$CHANNEL" ]]; then
+          arguments+=(--channel "$CHANNEL")
+        fi
+        "$CLI_PATH" "${arguments[@]}"
+    - if: inputs.raw == '' && inputs.framework != 'tauri'
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        APP: ${{ inputs.app }}
+        CHANNEL: ${{ inputs.channel }}
+        CLI_PATH: ${{ steps.install.outputs.path }}
+        CMD: ${{ inputs.cmd }}
+        CN_API_KEY: ${{ inputs.key }}
+        VERSION: ${{ inputs.version }}
+      run: |
+        arguments=(release "$CMD" "$APP" "$VERSION")
+        if [[ -n "$CHANNEL" ]]; then
+          arguments+=(--channel "$CHANNEL")
+        fi
+        "$CLI_PATH" "${arguments[@]}"

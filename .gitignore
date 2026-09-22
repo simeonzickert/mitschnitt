@@ -1,0 +1,43 @@
+target/
+target
+**/.build/
+node_modules/
+.pnpm-store/
+.DS_Store
+.shuttle/
+Secrets*.toml
+.env
+.env.*
+!.env.sample
+.venv
+**/__pycache__/
+.supabase/
+.stripe/
+supabase/.seed/
+
+*storybook.log
+.cache/
+
+internal
+.turbo
+
+**/examples/out/
+
+# Local Netlify folder
+.netlify
+
+# TypeScript incremental build cache
+*.tsbuildinfo
+
+# Agent scratch / reference material (not for commit)
+.tmp/
+.codex-security-artifacts-*/
+.codex-security-work-ledger-*.jsonl
+.claude/launch.json
+
+# insta laesst Zwischenstaende liegen; sie gehoeren nie ins Repo.
+*.pending-snap
+*.snap.new
+
+# libmp3lame wird beim Bauen erzeugt (vendor/mp3lame-sys/build.rs), nicht gepflegt.
+vendor/lame-dylib/

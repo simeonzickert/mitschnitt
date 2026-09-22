@@ -1,0 +1,20 @@
+[package]
+name = "transcription-core"
+version = "0.1.0"
+edition = "2024"
+description = ""
+
+[features]
+default = []
+specta = [
+  "anlg-listener-core/specta",
+  "anlg-listener2-core/specta",
+]
+tauri-event = [
+  "anlg-listener-core/tauri-event",
+  "anlg-listener2-core/tauri-event",
+]
+
+[dependencies]
+anlg-listener-core = { workspace = true }
+anlg-listener2-core = { workspace = true }

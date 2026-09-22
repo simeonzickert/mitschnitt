@@ -1,0 +1,12 @@
+[default]
+description = "Default permissions for the plugin"
+permissions = [
+  "allow-show",
+  "allow-hide",
+  "allow-set-phase",
+  "allow-update-amplitude",
+  "allow-start-recording",
+  "allow-stop-recording",
+  "allow-cancel-recording",
+  "allow-discard-recording",
+]

@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-vocabulary-risky-aliases"
+description = "Enables the vocabulary_risky_aliases command without any pre-configured scope."
+commands.allow = ["vocabulary_risky_aliases"]
+
+[[permission]]
+identifier = "deny-vocabulary-risky-aliases"
+description = "Denies the vocabulary_risky_aliases command without any pre-configured scope."
+commands.deny = ["vocabulary_risky_aliases"]

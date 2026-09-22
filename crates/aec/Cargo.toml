@@ -1,0 +1,34 @@
+[package]
+name = "aec"
+version = "0.1.0"
+edition = "2024"
+
+[features]
+default = ["onnx", "128"]
+onnx = ["dep:anlg-onnx"]
+128 = []
+256 = []
+512 = []
+
+[dependencies]
+anlg-onnx = { workspace = true, optional = true }
+
+realfft = { workspace = true }
+
+serde = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+anlg-audacity = { workspace = true }
+anlg-audio-snapshot = { workspace = true }
+anlg-audio-utils = { workspace = true }
+approx = { workspace = true }
+clap = { workspace = true, features = ["derive"] }
+criterion = { workspace = true }
+dasp = { workspace = true }
+hound = { workspace = true }
+rodio = { workspace = true }
+
+[[bench]]
+name = "aec_bench"
+harness = false
