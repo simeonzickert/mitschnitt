@@ -14,7 +14,7 @@
 #      Stand, keine unversionierten oder ignorierten Dateien -- die stecken
 #      in einem Archiv von HEAD ohnehin nie drin).
 #   2. Bekannte Ausschluesse anwenden (siehe AUSSCHLUSS_PFADE unten) und einen
-#      `.github/README.md` an die Stelle der entfernten Workflows legen.
+#      `.github/WORKFLOWS.md` an die Stelle der entfernten Workflows legen.
 #   3. Verdaechtige Dateien AUFLISTEN (Testaudio, Datenbanken, Schluessel,
 #      Sicherungen) -- nichts davon automatisch entfernen. Diese Entscheidung
 #      gehoert einem Menschen, nicht diesem Skript.
@@ -111,7 +111,7 @@ echo "   $DATEIEN_ROH Dateien aus dem HEAD-Archiv entpackt."
 #   .github/workflows/          10 geerbte Upstream-CI-Rezepte mit
 #                                Cloud-Zugangsdaten-Erwartungen (Secrets,
 #                                Runner, Deploy-Ziele), die fuer dieses
-#                                Repo nicht gelten. Ersatz: .github/README.md
+#                                Repo nicht gelten. Ersatz: .github/WORKFLOWS.md
 #                                unten.
 #   .github/reports/            Interne Berichte des Originalprojekts ueber
 #                                DESSEN eigene Funktionen (z.B. der
@@ -173,7 +173,7 @@ for muster in "node_modules" "target" ".env" ".env.*"; do
 done
 
 mkdir -p "$ZIEL/.github"
-cat > "$ZIEL/.github/README.md" <<'EOF'
+cat > "$ZIEL/.github/WORKFLOWS.md" <<'EOF'
 # Why there are no workflows here
 
 Mitschnitt is built, signed and notarized locally with `scripts/mitschnitt-release.sh`.
@@ -181,7 +181,7 @@ The CI pipeline of the project it started from expected that project's own cloud
 credentials, runners and deploy targets, so it was removed rather than left to fail.
 To build from source, see the README.
 EOF
-echo "   geschrieben: .github/README.md"
+echo "   geschrieben: .github/WORKFLOWS.md"
 
 # ----------------------------------------------- 3) Kandidaten nur AUFLISTEN
 # Testaudio, Datenbanken, Schluessel, Sicherungen: koennen legitime
