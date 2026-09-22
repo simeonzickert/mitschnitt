@@ -1,4 +1,4 @@
-# Mitschnitt — Anleitung für den ersten Start
+# Mitschnitt: Anleitung für den ersten Start
 
 Mitschnitt nimmt Gespräche auf und schreibt sie mit. Alles läuft auf deinem eigenen
 Rechner.
@@ -10,20 +10,14 @@ Du brauchst einen Mac mit Apple-Chip (M1 oder neuer) und **macOS 15 oder neuer**
 
 ## 1. Die App zum ersten Mal öffnen
 
-Die App ist selbst signiert, aber sie ist nicht bei Apple registriert. Deshalb
-verweigert macOS beim ersten Doppelklick den Start. Das ist normal und kein Fehler.
+1. Lade `Mitschnitt-<version>-notarisiert.zip` von der
+   [aktuellen Version](https://github.com/simeonzickert/mitschnitt/releases/latest) und
+   entpacke die Datei.
+2. Zieh **Mitschnitt** in deinen Ordner **Programme**.
+3. Doppelklick auf die App.
 
-**Ein Rechtsklick auf die App hilft nicht.** Apple hat diesen Weg abgeschafft. So geht es:
-
-1. Zieh **Mitschnitt** in deinen Ordner **Programme**.
-2. Doppelklick auf die App. Es erscheint eine Meldung, dass die App nicht geöffnet werden
-   kann. Klick auf **Fertig**.
-3. Öffne die **Systemeinstellungen** und geh links auf **Datenschutz & Sicherheit**.
-4. Scroll nach unten. Dort steht ein Satz, dass Mitschnitt am Öffnen gehindert wurde,
-   daneben ein Knopf **Trotzdem öffnen**. Klick darauf.
-5. Gib dein Anmeldekennwort ein und bestätige noch einmal mit **Öffnen**.
-
-Das ist einmalig. Danach startest du die App wie jede andere per Doppelklick.
+Die App ist von Apple notarisiert, macOS öffnet sie deshalb ohne Warnung. Spätere
+Versionen installiert sie selbst (siehe Abschnitt 5).
 
 ---
 
@@ -46,20 +40,19 @@ siehst, wie das Ergebnis aussieht.
 
 ---
 
-## 3. Ein Modell für die Mitschrift laden
+## 3. Das Modell für die Mitschrift
 
-**Das musst du einmal tun, sonst schreibt die App nichts mit.** Die Modelle sind nicht in
-der App enthalten, weil sie zu groß dafür sind.
+Beim ersten Start lädt die App das Modell für die Mitschrift (Parakeet, rund 660 MB).
+Der Knopf zum Öffnen der App kommt erst, wenn es da ist. Die Modelle stecken nicht in
+der App, weil sie zu groß dafür sind.
 
-1. Geh in **Einstellungen → Transcription**.
-2. Wähl ein Modell und klick auf **Download**.
-
-Was du nehmen kannst:
+Weitere Modelle findest du unter **Einstellungen → Transcription**: Modell wählen,
+**Download** klicken. Was es gibt:
 
 | Modell | Größe | Wofür |
 | --- | --- | --- |
-| Parakeet (Batch) | rund 470 MB | Die Mitschrift nach dem Gespräch. Der übliche Weg. |
-| Parakeet (Streaming) | rund 430 MB | Untertitel live während des Gesprächs. |
+| Parakeet (Batch) | rund 660 MB | Die Mitschrift nach dem Gespräch. Der übliche Weg. |
+| Parakeet (Streaming) | rund 125 MB | Untertitel live während des Gesprächs. |
 | Whisper large-v3-turbo | rund 830 MB | Langsamer, aber besser bei Namen und Satzzeichen. |
 
 Dazu kommen rund 35 MB für die Sprechertrennung, also dafür, dass im Text steht, wer

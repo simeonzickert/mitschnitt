@@ -1,93 +1,125 @@
 <div align="center">
 
-  <img width="110" src="apps/desktop/src-tauri/icons/stable/128x128@2x.png" alt="Mitschnitt" />
+  <img width="110" src="apps/desktop/src-tauri/icons/stable/128x128@2x.png" alt="Mitschnitt icon" />
 
   <h1>Mitschnitt</h1>
 
+  <p><b>Record any meeting. No bot, no account, no cloud.</b></p>
+  <p>Meeting notes that never leave your Mac.</p>
+
   <p>
-    <b>Meeting-Mitschnitt, der auf deinem Rechner bleibt.</b>
+    <a href="https://github.com/simeonzickert/mitschnitt/releases/latest"><b>Download for macOS</b></a>
+    &nbsp;·&nbsp;
+    <a href="docs/getting-started.md">Getting started</a>
+    &nbsp;·&nbsp;
+    <a href="CHANGELOG.md">What's new</a>
+  </p>
+
+  <p>
+    <img alt="macOS 15+" src="https://img.shields.io/badge/macOS-15%2B-black" />
+    <img alt="Apple Silicon" src="https://img.shields.io/badge/Apple%20Silicon-M1%2B-black" />
+    <img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-black" />
   </p>
 
 </div>
 
-<br />
+<!-- Screenshot goes here: transcript view with speakers, from a meeting without real client names. -->
 
-## Was das hier ist
+## Why Mitschnitt
 
-Mitschnitt ist ein **privater Fork von [anarlog](https://github.com/fastrepl/anarlog)**
-(Fastrepl, Inc., MIT-lizenziert). Es ist kein offizielles Produkt von Fastrepl, steht in
-keiner Verbindung zu ihnen, und Fastrepl unterstützt oder prüft diesen Fork nicht. Fehler
-hier sind unsere, nicht ihre. Fragen zu diesem Fork gehen nicht an das Original-Projekt.
+Most meeting tools send a bot into your call and your conversation into someone else's cloud. Mitschnitt does neither.
 
-Die App nimmt Meetings auf deinem Rechner auf, schreibt sie dort mit und legt alles in eine
-lokale SQLite-Datenbank plus normale Dateien daneben. Kein Bot sitzt im Call, nichts muss in
-eine Cloud.
+- **No bot joins your call.** Mitschnitt records your microphone and your Mac's system audio directly. Zoom, Teams, Meet, a phone call routed through your Mac: if you can hear it, it can write it down.
+- **Your recordings stay on your Mac.** Transcription runs locally. Audio, transcripts and notes live in your user folder, not on a server.
+- **No account, no subscription, no telemetry.** There is nothing to sign up for and no analytics phoning home.
 
-Der Fork existiert, weil die Original-App zwei Sachen tat, die im Alltag stören: sie schickte
-Telemetrie los, und sie setzte einen Account voraus, wo keiner nötig ist. Beides ist raus.
+## What it does
 
-## Was wir geändert haben
+- **Local transcription** with NVIDIA Parakeet (fast) or Whisper large-v3-turbo (slower, better with names and punctuation), both running on your Mac.
+- **Who said what.** Your microphone and the other side are recorded as separate channels, and on-device speaker separation tells apart several people in the same room.
+- **Names from your calendar.** Recordings pick up the title and participants of the matching calendar event (optional).
+- **A vocabulary that learns.** Teach it the names and terms it keeps mishearing, and it corrects them in every transcript.
+- **Resume after an accidental stop.** Hit stop too early? One click keeps recording into the same meeting.
+- **Search inside transcripts,** with the jump landing on the word, not somewhere near it.
+- **Summaries on your terms.** Use Apple Intelligence (macOS 26+), a local model via Ollama or LM Studio, or your own API key for OpenAI, Anthropic or Google. You decide if and where text goes.
+- **Plain files, always.** Every meeting also gets a readable folder with Markdown and audio. Your data never depends on the app.
+- **Works with your AI tools.** A local `mitschnitt` CLI and MCP server let Claude, Codex and other agents read your meetings. Agents can only propose edits; you approve them in the app.
+- **Bring your history.** Import existing meetings from anarlog or Hyprnote.
+- **Updates itself,** from this repository's releases, never in the middle of a recording. You can turn this off.
 
-- **Eigene Marke und eigene Identität.** Anderer Name, anderes Icon, eigener
-  Bundle-Bezeichner (`media.zickert.mitschnitt`), eigenes URL-Schema.
-- **Eigener Datenordner.** Der Fork fasst die Daten einer parallel installierten
-  Original-App nicht an. Beide können nebeneinander laufen.
-- **Kein Telemetrie-Zwang, kein Cloud-Zwang.** Der Telemetrie-Sender ist entfernt, nicht nur
-  abgeschaltet. Account, Sync und Onboarding-Login sind raus. Cloud-Anbieter für
-  Transkription und Sprachmodelle kannst du weiter einrichten, wenn du willst; du musst
-  nicht.
-- **Markdown-Spiegel.** Jedes Gespräch bekommt zusätzlich zur Datenbank einen lesbaren
-  Ordner mit Markdown und Audio. Einweg: die Datenbank bleibt der Maschinenraum, der
-  Spiegel ist der garantierte Ausgang.
-- **Einstellungen exportieren und importieren.** Als eine Datei, mit Vorschau vor dem
-  Import und ohne dass Zugangsdaten dabei verloren gehen.
-- **Aufbewahrung.** Du kannst eine Frist setzen, nach der alte Aufnahmen verschwinden. Sie
-  löscht nichts, bevor du sie einmal ausdrücklich scharf gestellt hast.
-- **Reparierte Zeitachse.** Der Batch-Weg setzte Wortpakete auf ein starres
-  29,5-Sekunden-Raster statt an den Sprechbeginn. Das ist behoben.
-- **Drei lokale Transkriptionsmodelle zur Wahl:** Parakeet (schnell, trifft Eigennamen gut),
-  Whisper large-v3-turbo (genauer, deutlich langsamer), plus die Anbieter, die du selbst
-  einträgst.
+## Privacy
 
-Alles andere kommt weiter aus dem Upstream und wird von dort nachgezogen.
+What leaves your Mac, and only then:
 
-## Repository
+| When | What goes out | Where |
+| --- | --- | --- |
+| You download a transcription model | The model file comes in | Hugging Face |
+| The app checks for updates (at launch, then about every 30 minutes) | A version check, and the update itself when there is one | GitHub releases of this repo |
+| You add your own AI provider for summaries | The transcript text you summarize | The provider you chose |
 
-| Pfad | Was da liegt |
-| --- | --- |
-| `apps/desktop` | Die App: Tauri v2, React/TypeScript vorn, Rust hinten |
-| `plugins/*` | Tauri-Erweiterungen: lokale Transkription, Datenbank, Kalender, Export, Benachrichtigungen |
-| `crates/*` | Rust-Bibliotheken: Audioaufnahme, Transkription, Sprechertrennung, Speicher |
-| `packages/*` | Geteilte TypeScript-Pakete: Editor, Datenbank, UI |
+No audio ever leaves your Mac unless you configure a cloud transcription provider yourself. There are no crash reports and no usage statistics; the code for them has been removed, not just switched off.
 
-## Selbst bauen
+## Install
 
-Du brauchst Node.js 22 oder neuer, pnpm 11.1.1, Rust 1.94.0 und die
-[Tauri-v2-Systemabhängigkeiten](https://v2.tauri.app/start/prerequisites/).
+1. Download `Mitschnitt-<version>-notarisiert.zip` ("notarisiert" is German for notarized) from the [latest release](https://github.com/simeonzickert/mitschnitt/releases/latest) and unzip it.
+2. Drag **Mitschnitt** into your Applications folder and open it. The app is notarized by Apple, so macOS opens it without a warning.
+3. Grant the permissions it asks for. Each one is requested only when you click:
+   - **Microphone**, for your own voice.
+   - **System audio**, for everyone else in the call.
+   - **Accessibility**, so the app notices when a call starts.
+   - **Calendar** (optional), for meeting titles and participants.
+
+On first launch Mitschnitt downloads its transcription model (about 660 MB). The full walkthrough is in [Getting started](docs/getting-started.md) ([Deutsch](docs/getting-started.de.md)).
+
+**Requirements:** a Mac with Apple Silicon (M1 or newer) and macOS 15 or later.
+
+## FAQ
+
+**What does "Mitschnitt" mean?**
+It's German for a recording you make of something as it happens. Think of it as "taking it all down".
+
+**Does the other side know I'm recording?**
+Mitschnitt doesn't announce itself in the call. Whether you need consent depends on where you and the other people are. Ask first; it's the decent thing to do anyway.
+
+**Why are summaries not fully local yet?**
+Transcription is local today. A built-in local language model for summaries is on the roadmap. Until then, Apple Intelligence (macOS 26+) or a local Ollama or LM Studio server keep everything on your Mac.
+
+**Windows?**
+Planned. The groundwork is there, local transcription on Windows is not yet.
+
+## Roadmap
+
+- Built-in local model for summaries, no API key needed
+- Windows support
+- Naming speakers once and recognizing them in later meetings
+
+## Build from source
+
+You need Node.js 22 or later, pnpm 11.1.1, Rust 1.94.0 and the [Tauri v2 prerequisites](https://v2.tauri.app/start/prerequisites/).
 
 ```bash
 pnpm install --frozen-lockfile
 pnpm exec turbo dev:desktop
 ```
 
-Für eine signierte, installierbare Fassung auf dem Mac gibt es
-`scripts/mitschnitt-deploy.sh`. Das Skript baut, signiert mit der Developer-ID und bricht ab,
-wenn die Signatur doch ad-hoc wäre oder das Bundle nicht aus diesem Lauf stammt. Ohne das
-Skript kommt das Berechtigungs-Problem bei jedem Neubau zurück.
+The app is a Tauri v2 desktop app: React and TypeScript in front, Rust underneath.
 
-## Lizenz
+| Path | Contents |
+| --- | --- |
+| `apps/desktop` | The macOS app |
+| `apps/cli` | The `mitschnitt` command-line tool and MCP server |
+| `crates/*` | Rust libraries: audio capture, transcription, speaker separation, storage |
+| `plugins/*` | Tauri plugins: local transcription, database, calendar, export, updater |
+| `packages/*` | Shared TypeScript packages: editor, database, UI |
 
-Der Code steht unter der **MIT-Lizenz**, Copyright Fastrepl, Inc., siehe
-[`LICENSE`](LICENSE). Die MIT-Lizenz verlangt, dass dieser Hinweis bei jeder Kopie
-mitgeht; deshalb liegt die Lizenzdatei auch im fertigen App-Bundle unter
-`Contents/Resources/licenses/`.
+Contributions are welcome, see [CONTRIBUTING.md](CONTRIBUTING.md). Security issues go to the address in [SECURITY.md](SECURITY.md), not to a public issue.
 
-In der App steckt außerdem Arbeit von anderen: Schriften, Modelle, fremde Logos. Wer das
-alles ist und unter welchen Bedingungen es mitgeliefert wird, steht in
-[`ATTRIBUTIONS.md`](ATTRIBUTIONS.md). Ein Punkt lohnt einen Blick, bevor du daraus etwas
-Kommerzielles machst: die Sprachmodelle Llama, Gemma und Parakeet tragen eigene
-Bedingungen, die keine OSI-Lizenzen sind.
+## Acknowledgements
 
-Die Sync-Bibliothek unter der Elastic License ist am 01.09.2026 mit der Cloud-Schicht
-ausgebaut worden. Dieser Fork liefert keine Binärdateien mehr aus, die eine Lizenz von
-SQLite Cloud, Inc. verlangen.
+Mitschnitt started as a fork of [anarlog](https://github.com/fastrepl/anarlog) by Fastrepl, Inc., and owes its foundation to that project. It has since gone its own way, built around local-first recording and plain files. Mitschnitt is independent and not affiliated with or endorsed by Fastrepl.
+
+Transcription uses NVIDIA Parakeet and OpenAI Whisper models. All third-party components and their licenses are listed in [ATTRIBUTIONS.md](ATTRIBUTIONS.md) and inside the app under **Settings → About**.
+
+## License
+
+[MIT](LICENSE). Some bundled models carry their own terms; see [ATTRIBUTIONS.md](ATTRIBUTIONS.md) before building something commercial on top.

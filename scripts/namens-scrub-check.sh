@@ -179,7 +179,7 @@ AUSSCHLUSS=(
 # 1. FORM, nicht Name: die Bundle-Kennung kommt in ueber hundert Zeilen vor.
 #    Sie wird als Muster beschrieben, das den Firmennamen nicht ausschreibt --
 #    sonst stuende er hier im Repo und der Waechter waere sein eigener Fund.
-ERLAUBT_FORM='media\.[a-z]+\.mitschnitt(\.(stable|staging|desktop|flatpak))*|media/[a-z]+/mitschnitt|id="media\.[a-z]+"'
+ERLAUBT_FORM='media\.[a-z]+\.mitschnitt(\.(stable|staging|desktop|flatpak))*|media/[a-z]+/mitschnitt|id="media\.[a-z]+"|github\.com/[a-z]+/mitschnitt'
 #
 # 2. GENAUE ZEILE: alles andere, was absichtlich einen Klarnamen traegt, wird
 #    als Paar aus Pfad und SHA-256 der getrimmten Zeile geführt. Damit steht
@@ -197,6 +197,9 @@ ERLAUBT_FORM='media\.[a-z]+\.mitschnitt(\.(stable|staging|desktop|flatpak))*|med
 #      printf '%s' "<pfad>"            | shasum -a 256
 #      printf '%s' "<getrimmte zeile>" | shasum -a 256
 ERLAUBTE_ZEILEN=$(cat <<'EOF'
+c693279643b8cd5d248172d9c22cb7cf4ed163a3c98c8a3f69c2717edd3eacb7	c2e543559eb1caa0083c2bcedec8896efbc33941213fe2cd7c357eca878d2f3a
+eca12c0a30e25b4b46522ebf89465a03ba72a03f540796c979137931d8f92055	eb1722c21c7a22ff58dc59ab8595fe03bbe103528d64158519da532557e07f68
+f6ed156e4bf5c791680662464b94ea5d753f219ee816b385f67870e2c0d7d4c7	41473b853460513fc8532e2cb1b74befa7132bc7cc53ff717bbbd8ce73cc52b1
 f6ed156e4bf5c791680662464b94ea5d753f219ee816b385f67870e2c0d7d4c7	2385a0552309717949bc9d1860c89e18b9cf895841fb66b0ee7f30b4212fefcf
 f6ed156e4bf5c791680662464b94ea5d753f219ee816b385f67870e2c0d7d4c7	c26cafbbf3ffa467553fdaf3f879ecbf2b3a12ec31681ec525131b5aa98d0ab9
 25f93a9e45647c833a5769e5c21fb1735e0ffd08f536dad2337de462ed7d14dd	8d688a92ed8ce493ec82468be34e113d2197f10408f0ad8a4eaa7215c9105a83

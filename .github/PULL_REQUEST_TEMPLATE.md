@@ -14,5 +14,3 @@ Title: state the intended outcome with a specific action. For example, use
 ## Verification
 
 <!-- List the commands and manual checks you ran. -->
-
-<!-- External contributors only: CLA Assistant will post a signing link after the PR is opened. The CLA check must pass before merge. Maintainers are not gated. -->

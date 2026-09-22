@@ -30,7 +30,7 @@ Then install the workspace:
 pnpm install --frozen-lockfile
 ```
 
-The desktop app and website start without secrets for local-first workflows.
+The desktop app starts without secrets.
 
 ## Run the app
 
@@ -114,6 +114,6 @@ Check the affected workflow under `.github/workflows/` for stricter package-spec
 
 ## Licensing and contribution boundary
 
-Mitschnitt is a fork of [anarlog](https://github.com/fastrepl/anarlog). The whole repository is distributed under the [MIT License](LICENSE), copyright Fastrepl, Inc. The upstream `enterprise/` tree, which was commercially licensed, does not exist in this fork. By submitting a contribution you agree that it may be distributed under MIT. Only submit material you have the right to license this way.
+Mitschnitt is a fork of [anarlog](https://github.com/fastrepl/anarlog). The whole repository is distributed under the [MIT License](LICENSE), copyright Fastrepl, Inc. and Simeon Zickert. The upstream `enterprise/` tree, which was commercially licensed, does not exist in this fork. By submitting a contribution you agree that it may be distributed under MIT. Only submit material you have the right to license this way.
 
 Never include customer configuration, credentials, confidential material, or untracked third-party code. Before reusing third-party code or assets, record the upstream repository, the immutable revision, the copyright holder, the license, and whether the material was copied, modified, or only used as a behavioral reference. Keep that record beside the consuming code and add an entry to [ATTRIBUTIONS.md](ATTRIBUTIONS.md), which is shipped inside the application bundle. Do not add AGPL, GPL, SSPL, source-available, or unknown-license material.

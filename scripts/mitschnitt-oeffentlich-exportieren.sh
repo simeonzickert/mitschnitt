@@ -122,9 +122,34 @@ echo "   $DATEIEN_ROH Dateien aus dem HEAD-Archiv entpackt."
 #                                Datei je zurueckkommt).
 #   (scripts/mitschnitt-notarisieren.sh bleibt drin: seit 22.09. ohne Klarnamen
 #                                und Pfade als Vorgabewerte, alles Pflicht-Variablen.)
+#   Weitere Upstream-Reste (22.09.2026, oeffentliche Repo-Seite): die
+#                                CI-Bausteine hinter den entfernten Workflows
+#                                (.github/actions, .github/scripts), die
+#                                CODEOWNERS- und AGENTS-Dateien des Originals
+#                                unter .github, die Plugin-Marktplaetze von
+#                                Fastrepl (.claude-plugin, .cursor-plugin,
+#                                .agents/plugins, zeigen auf ein Verzeichnis,
+#                                das es hier nicht gibt), die Expo-MCP-
+#                                Konfiguration des Mobil-Clients (.mcp.json,
+#                                .claude/settings.json), die Codex-Cloud-
+#                                Umgebung (.codex) und die Versionsnotiz-
+#                                Konfiguration der Upstream-Pipeline
+#                                (doxxer.desktop.toml). Nichts davon wird
+#                                gebaut oder gelesen, gemessen per git grep.
 AUSSCHLUSS_PFADE=(
   ".github/workflows"
   ".github/reports"
+  ".github/actions"
+  ".github/scripts"
+  ".github/CODEOWNERS"
+  ".github/AGENTS.md"
+  ".claude-plugin"
+  ".cursor-plugin"
+  ".agents/plugins"
+  ".claude/settings.json"
+  ".mcp.json"
+  ".codex"
+  "doxxer.desktop.toml"
 )
 
 log "Entferne bekannte Ausschluesse"
@@ -149,11 +174,12 @@ done
 
 mkdir -p "$ZIEL/.github"
 cat > "$ZIEL/.github/README.md" <<'EOF'
-# `.github/workflows/` fehlt hier absichtlich
+# Why there are no workflows here
 
-Die 10 CI-Rezepte des Originalprojekts erwarten dessen eigene Cloud-Zugangsdaten,
-Runner und Deploy-Ziele und laufen fuer dieses Repo nicht. Wer hier baut, baut
-lokal (siehe README.md).
+Mitschnitt is built, signed and notarized locally with `scripts/mitschnitt-release.sh`.
+The CI pipeline of the project it started from expected that project's own cloud
+credentials, runners and deploy targets, so it was removed rather than left to fail.
+To build from source, see the README.
 EOF
 echo "   geschrieben: .github/README.md"
 
