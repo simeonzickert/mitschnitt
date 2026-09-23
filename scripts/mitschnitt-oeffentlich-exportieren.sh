@@ -150,6 +150,7 @@ AUSSCHLUSS_PFADE=(
   ".mcp.json"
   ".codex"
   "doxxer.desktop.toml"
+  "WO-ENTWICKELN.md"  # interne Prozessnotiz des Arbeitsrepos (23.09.), gilt nicht im Ausgabe-Repo
 )
 
 log "Entferne bekannte Ausschluesse"

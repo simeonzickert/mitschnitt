@@ -33,6 +33,20 @@ Most meeting tools send a bot into your call and your conversation into someone 
 - **Your recordings stay on your Mac.** Transcription runs locally. Audio, transcripts and notes live in your user folder, not on a server.
 - **No account, no subscription, no telemetry.** There is nothing to sign up for and no analytics phoning home.
 
+## Install
+
+1. Download `Mitschnitt-<version>-notarisiert.zip` ("notarisiert" is German for notarized) from the [latest release](https://github.com/simeonzickert/mitschnitt/releases/latest) and unzip it.
+2. Drag **Mitschnitt** into your Applications folder and open it. The app is notarized by Apple, so macOS opens it without a warning.
+3. Grant the permissions it asks for. Each one is requested only when you click:
+   - **Microphone**, for your own voice.
+   - **System audio**, for everyone else in the call.
+   - **Accessibility**, so the app notices when a call starts.
+   - **Calendar** (optional), for meeting titles and participants.
+
+On first launch Mitschnitt downloads its transcription model (about 660 MB). The full walkthrough is in [Getting started](docs/getting-started.md) ([Deutsch](docs/getting-started.de.md)).
+
+**Requirements:** a Mac with Apple Silicon (M1 or newer) and macOS 15 or later.
+
 ## What it does
 
 - **Local transcription** with NVIDIA Parakeet (fast) or Whisper large-v3-turbo (slower, better with names and punctuation), both running on your Mac.
@@ -58,20 +72,6 @@ What leaves your Mac, and only then:
 | You add your own AI provider for summaries | The transcript text you summarize | The provider you chose |
 
 No audio ever leaves your Mac unless you configure a cloud transcription provider yourself. There are no crash reports and no usage statistics; the code for them has been removed, not just switched off.
-
-## Install
-
-1. Download `Mitschnitt-<version>-notarisiert.zip` ("notarisiert" is German for notarized) from the [latest release](https://github.com/simeonzickert/mitschnitt/releases/latest) and unzip it.
-2. Drag **Mitschnitt** into your Applications folder and open it. The app is notarized by Apple, so macOS opens it without a warning.
-3. Grant the permissions it asks for. Each one is requested only when you click:
-   - **Microphone**, for your own voice.
-   - **System audio**, for everyone else in the call.
-   - **Accessibility**, so the app notices when a call starts.
-   - **Calendar** (optional), for meeting titles and participants.
-
-On first launch Mitschnitt downloads its transcription model (about 660 MB). The full walkthrough is in [Getting started](docs/getting-started.md) ([Deutsch](docs/getting-started.de.md)).
-
-**Requirements:** a Mac with Apple Silicon (M1 or newer) and macOS 15 or later.
 
 ## FAQ
 
