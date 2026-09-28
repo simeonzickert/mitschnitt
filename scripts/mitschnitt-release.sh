@@ -130,6 +130,26 @@ if [ "$HOCHLADEN" = "1" ] && ! command -v gh >/dev/null 2>&1; then
   exit 1
 fi
 
+log "Changelog fuer $VERSION pruefen"
+# GANZ VORNE, vor jedem Bau-Schritt (~20 min): CHANGELOG.md muss einen
+# Abschnitt fuer $VERSION mit einem nicht-leeren "### What's new" tragen,
+# sonst tragen die Release-Notiz und latest.json wieder nur den Platzhalter
+# "Mitschnitt $VERSION" -- genau das ist 0.1.7 und 0.1.8 passiert (Entscheid
+# 28.09.2026: "die releasenotes musst du viel besser pflegen!"). Die Probe
+# selbst prueft ausfuehrlich (scripts/changelog-extract.sh), hier nur der
+# Abbruch mit Ansage, damit niemand erst nach dem vollen Bau merkt, dass der
+# Changelog-Eintrag fehlt.
+# CHANGELOG_FILE ist der PFAD zu CHANGELOG.md -- nicht zu verwechseln mit
+# CHANGELOG_MD weiter unten, das ist der bereits ausgelesene Markdown-Text
+# fuer "### What's new".
+CHANGELOG_FILE="$REPO_ROOT/CHANGELOG.md"
+if ! "$REPO_ROOT/scripts/changelog-extract.sh" "$CHANGELOG_FILE" "$VERSION" what-new >/dev/null; then
+  echo "FEHLER: CHANGELOG.md hat keinen (oder einen leeren) Abschnitt fuer $VERSION." >&2
+  echo "        Vor jedem Release erst CHANGELOG.md pflegen -- siehe Kopfkommentar" >&2
+  echo "        dort und scripts/changelog-extract.sh." >&2
+  exit 1
+fi
+
 # Die Updater-Schluessel verlassen den Schluesselbund nur in den Prozess-Speicher
 # dieses Laufs -- nie in eine Datei, nie in eine Logzeile. Bewusst NICHT
 # exportiert: ein `export` gaebe sie an JEDEN Kindprozess dieses Laufs weiter
@@ -309,17 +329,23 @@ TAURI_SIGNING_PRIVATE_KEY="$TAURI_SIGNING_PRIVATE_KEY" \
 SIGNATURE_FILE="$UPDATE_ARCHIVE.sig"
 [ -s "$SIGNATURE_FILE" ] || { echo "FEHLER: $SIGNATURE_FILE ist leer oder fehlt." >&2; exit 1; }
 
+log "Changelog-Text aus CHANGELOG.md auslesen"
+# Eine Quelle (CHANGELOG.md), drei Verwendungen: NOTES_PLAIN geht unten in
+# latest.json (der Tauri-Updater-Dialog rendert kein Markdown, deshalb
+# Klartext ohne Links/Betonung), CHANGELOG_MD und NOTE_MD gehen weiter unten
+# in die GitHub-Release-Notiz (die rendert Markdown, deshalb unveraendert).
+# Der fruehe Check oben hat schon sichergestellt, dass der Abschnitt da ist
+# -- diese drei Aufrufe koennen an sich nicht mehr fehlschlagen, ausser die
+# Datei aenderte sich waehrend des ~20-min-Baus unter uns weg.
+NOTES_PLAIN="$("$REPO_ROOT/scripts/changelog-extract.sh" "$CHANGELOG_FILE" "$VERSION" notes-plain)"
+CHANGELOG_MD="$("$REPO_ROOT/scripts/changelog-extract.sh" "$CHANGELOG_FILE" "$VERSION" what-new)"
+NOTE_MD="$("$REPO_ROOT/scripts/changelog-extract.sh" "$CHANGELOG_FILE" "$VERSION" note)"
+
 log "latest.json schreiben"
 DOWNLOAD_URL="https://github.com/$RELEASE_REPO/releases/download/v$VERSION/Mitschnitt.app.tar.gz"
 PUB_DATE="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
-CHANGELOG_FILE="$REPO_ROOT/packages/changelog/content/$VERSION.md"
-if [ -f "$CHANGELOG_FILE" ]; then
-  NOTES="$(cat "$CHANGELOG_FILE")"
-else
-  NOTES="Mitschnitt $VERSION"
-fi
 LATEST_JSON="$OUT_DIR/latest.json"
-python3 - "$LATEST_JSON" "$VERSION" "$NOTES" "$PUB_DATE" "$SIGNATURE_FILE" "$DOWNLOAD_URL" "$PLATFORM_KEY" <<'PY'
+python3 - "$LATEST_JSON" "$VERSION" "$NOTES_PLAIN" "$PUB_DATE" "$SIGNATURE_FILE" "$DOWNLOAD_URL" "$PLATFORM_KEY" <<'PY'
 import json
 import sys
 
@@ -368,9 +394,10 @@ log "Release-Notiz schreiben (Download-Link auf die DMG zuerst)"
 # nicht fuer Menschen. Vorlage: docs/release-notes-template.md.
 RELEASE_NOTES="$OUT_DIR/release-notes.md"
 python3 - "$REPO_ROOT/docs/release-notes-template.md" "$RELEASE_NOTES" "$VERSION" \
-  "https://github.com/$RELEASE_REPO/releases/download/v$VERSION/$DMG_NAME" "$DMG_NAME" "$NOTES" <<'PY'
+  "https://github.com/$RELEASE_REPO/releases/download/v$VERSION/$DMG_NAME" "$DMG_NAME" \
+  "$CHANGELOG_MD" "$NOTE_MD" <<'PY'
 import sys
-tpl, out, version, dmg_url, dmg_name, changelog = sys.argv[1:7]
+tpl, out, version, dmg_url, dmg_name, changelog, note = sys.argv[1:8]
 text = open(tpl).read()
 # Kommentarblock der Vorlage (zwischen <!-- und -->) nicht mitveroeffentlichen.
 while "<!--" in text:
@@ -380,10 +407,19 @@ while "<!--" in text:
 for key, val in {"{{VERSION}}": version, "{{DMG_URL}}": dmg_url,
                  "{{DMG_NAME}}": dmg_name}.items():
     text = text.replace(key, val)
-# Pruefen VOR dem Einsetzen des Changelogs: dessen Text darf selbst "{{" tragen.
-if "{{" in text.replace("{{CHANGELOG}}", ""):
+# {{NOTE}} als Markdown-Blockquote einsetzen (jede Zeile mit "> " davor,
+# eine leere Zeile im Hinweis wird zu einer blossen ">" -- gaengige Konvention
+# fuer mehrzeilige Blockquotes). Traegt die Version keinen Note-Abschnitt,
+# ist note="" und note_block bleibt leer, die Zeile verschwindet einfach.
+if note:
+    note_block = "\n".join("> " + zeile if zeile else ">" for zeile in note.split("\n"))
+else:
+    note_block = ""
+# Pruefen VOR dem Einsetzen von Changelog/Note: deren Text darf selbst "{{" tragen.
+platzhalter_frei = text.replace("{{CHANGELOG}}", "").replace("{{NOTE}}", "")
+if "{{" in platzhalter_frei:
     sys.exit("FEHLER: unaufgeloester Platzhalter in der Release-Notiz")
-text = text.replace("{{CHANGELOG}}", changelog)
+text = text.replace("{{CHANGELOG}}", changelog).replace("{{NOTE}}", note_block)
 open(out, "w").write(text.lstrip())
 PY
 

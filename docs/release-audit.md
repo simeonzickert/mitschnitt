@@ -45,10 +45,25 @@ Run these before publishing a stable desktop release.
    Skript `run-native-dev-qa.sh` ist stillgelegt (Exit 2), weil es gegen
    `desktop_cd.yaml` und die Endpunkte des Originals baute.
 
-5. **Changelog** -- eine `<version>.md` unter `packages/changelog/content`
-   nach dem Muster in `LIESMICH.md` dort. Die Upstream-Anleitung
-   (`.agents/skills/new-changelog`, verlangte `desktop_cd.yaml` und doxxer)
-   ist geloescht.
+5. **Changelog** -- **zuerst `CHANGELOG.md` im Repo-Wurzelordner pflegen**,
+   ein Abschnitt `## <version> (JJJJ-MM-TT)` mit einem nicht-leeren
+   `### What's new` (optional `### Note` fuer Hinweise wie "installiere
+   diese Version einmal von Hand"). `scripts/mitschnitt-release.sh` liest
+   das aus (`scripts/changelog-extract.sh`) und baut daraus die GitHub-
+   Release-Notiz UND `latest.json`; fehlt der Abschnitt oder ist er leer,
+   bricht das Skript GANZ AM ANFANG ab, vor dem eigentlichen Bau. Bewusst
+   nur Englisch (Entscheid 28.09.2026: kein Deutsch/Englisch-Parallelbetrieb
+   auf GitHub).
+   ⚠️ **Getrennte, unbeteiligte Baustelle:** `packages/changelog/content/`
+   (Muster in `LIESMICH.md` dort) speist NUR den In-App-„Was ist neu"-
+   Bildschirm, nicht die Release-Notiz. Dort liegt seit dem Fork noch keine
+   einzige `<version>.md` -- die In-App-Anzeige zeigt fuer jede bisherige
+   eigene Version weiterhin „No changelog available for this version."
+   Dieser Fix laesst das bewusst unangetastet (ausserhalb des Auftrags,
+   braucht TS/React-Aenderungen in `apps/desktop/src/changelog`); wer die
+   In-App-Anzeige auch pflegen will, muss dort zusaetzlich schreiben. Die
+   Upstream-Anleitung (`.agents/skills/new-changelog`, verlangte
+   `desktop_cd.yaml` und doxxer) ist geloescht.
 
 6. **Cut the release** -- im Fork ist das Schritt 3. Die Upstream-Anleitung
    (`.agents/skills/release-new-version`, Dispatch von `desktop_cd.yaml`) ist
