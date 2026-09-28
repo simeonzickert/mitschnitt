@@ -16,12 +16,33 @@
 #   scripts/lgpl-gate.sh <Pfad zum .app-Bundle>
 #   scripts/lgpl-gate.sh                       (sucht den Debug-Bau)
 #
+# Umgebung:
+#   MITSCHNITT_LGPL_ARCH   erwartete Architektur, 'arm64' (Default) oder
+#                          'x86_64'. Der Intel-Release-Lauf baut quer und
+#                          ruft diesen Waechter ueber mitschnitt-notarisieren.sh
+#                          auf; ohne die Variable waere jedes x86_64-Bundle
+#                          dauerhaft rot (gemessen 28.09.2026). Default bleibt
+#                          arm64, damit mitschnitt-deploy.sh und alle
+#                          bisherigen Aufrufe unveraendert gruen bleiben.
+#
 # Exit 0 = weitergabefaehig. Exit 1 = NICHT weitergeben.
 
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DYLIB="libmp3lame.0.dylib"
+
+# Erwartete Architektur aus der Umgebung. Nur die beiden Werte, die lipo auf
+# macOS auch wirklich ausgibt -- alles andere waere ein Tippfehler, der sonst
+# als stiller Mismatch durchginge.
+ERWARTETE_ARCH="${MITSCHNITT_LGPL_ARCH:-arm64}"
+case "$ERWARTETE_ARCH" in
+  arm64|x86_64) ;;
+  *)
+    echo "FEHLER: MITSCHNITT_LGPL_ARCH='$ERWARTETE_ARCH' ist ungueltig (erlaubt: arm64, x86_64)." >&2
+    exit 1
+    ;;
+esac
 
 APP="${1:-}"
 if [ -z "$APP" ]; then
@@ -144,13 +165,15 @@ if [ -f "$DYLIB_PATH" ]; then
   #    Architektur gebaut sein. Eine x86_64-Dylib neben einem arm64-Haupt-
   #    programm (oder umgekehrt) wuerde auf dem Zielrechner beim Laden
   #    scheitern -- fuer den Empfaenger nicht von einer defekten Signatur zu
-  #    unterscheiden.
+  #    unterscheiden. WELCHE Architektur erwartet wird, sagt
+  #    MITSCHNITT_LGPL_ARCH (Default arm64): der Intel-Release-Lauf baut quer
+  #    und ist genauso korrekt wie der Apple-Silicon-Lauf.
   BINARY_ARCH="$(lipo -archs "$BINARY" 2>/dev/null || true)"
   DYLIB_ARCH="$(lipo -archs "$DYLIB_PATH" 2>/dev/null || true)"
-  if [ "$BINARY_ARCH" = "arm64" ] && [ "$DYLIB_ARCH" = "arm64" ]; then
-    meldung "gruen: Hauptprogramm und $DYLIB sind beide reines arm64"
+  if [ "$BINARY_ARCH" = "$ERWARTETE_ARCH" ] && [ "$DYLIB_ARCH" = "$ERWARTETE_ARCH" ]; then
+    meldung "gruen: Hauptprogramm und $DYLIB sind beide reines $ERWARTETE_ARCH"
   else
-    meldung "ROT: Architektur-Mismatch -- Hauptprogramm '$BINARY_ARCH', $DYLIB '$DYLIB_ARCH' (erwartet: beide genau 'arm64')."
+    meldung "ROT: Architektur-Mismatch -- Hauptprogramm '$BINARY_ARCH', $DYLIB '$DYLIB_ARCH' (erwartet: beide genau '$ERWARTETE_ARCH')."
     fehler=1
   fi
 

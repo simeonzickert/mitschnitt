@@ -4,6 +4,13 @@ All notable changes to Mitschnitt. The format follows [Keep a Changelog](https:/
 
 Every version heading below is `## X.Y.Z (YYYY-MM-DD)`. `scripts/changelog-extract.sh` reads this file by that exact heading and by the `### What's new` / optional `### Note` subheadings underneath it to build the GitHub release notes and the in-app update notice — see that script's header comment for the contract. Before a release ships, its section here must exist and `### What's new` must not be empty, or `scripts/mitschnitt-release.sh` refuses to build.
 
+## 0.1.9 (2026-09-28)
+
+### What's new
+
+- **Windows: updates install themselves.** From this version on, the Windows app checks for new versions and installs them on its own, like the Mac app.
+- **Macs with an Intel processor.** There is now a separate download for Intel Macs. It transcribes with a cloud provider only; local transcription needs Apple silicon.
+
 ## 0.1.8 (2026-09-28)
 
 ### Note

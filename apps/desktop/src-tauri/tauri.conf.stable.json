@@ -29,6 +29,7 @@
         "Resources/AppIcon.icns": "icons/stable/icon.icns"
       }
     },
+    "createUpdaterArtifacts": false,
     "windows": {
       "webviewInstallMode": {
         "type": "offlineInstaller"
@@ -44,8 +45,9 @@
       }
     },
     "updater": {
-      "active": false,
-      "endpoints": []
+      "endpoints": [
+        "https://github.com/simeonzickert/mitschnitt/releases/latest/download/latest.json"
+      ]
     }
   }
 }

@@ -66,6 +66,12 @@ fn build() {
                     config.config_option("host", Some("arm-apple-darwin"));
                 } else if target.starts_with("x86_64") {
                     config.config_option("host", Some("x86_64-apple-darwin"));
+                    // Querbau Apple Silicon -> Intel: cc setzt --target nur in
+                    // CFLAGS, libtool linkt die dylib aber ohne CFLAGS und damit
+                    // fuer den Host (gemessen 28.09.2026: "symbol(s) not found
+                    // for architecture arm64" beim Link von libmp3lame.la).
+                    // -arch im LDFLAGS zwingt den Linker auf das Ziel.
+                    config.ldflag("-arch x86_64");
                 } else {
                     println!("cargo:warning=Unsupported Apple target");
                 }

@@ -8,13 +8,21 @@
 # EXPLIZIT angegeben, das Ergebnis landet in einem eigenen Ausgabeordner, und am
 # Ende steht ein fertiges Update-Paket -- nicht eine lokale Installation.
 #
+# MEHRERE PLATTFORMEN (28.09.2026):
+#   Der Release-Prozess durchlaeuft drei unabhaengige Laeufe:
+#   1. aarch64-Lauf (Apple Silicon, --ziel aarch64, Default)
+#   2. x86_64-Lauf (Intel, --ziel x86_64, auf Apple-Silicon-Host quer gebaut)
+#   3. Windows (scripts/mitschnitt-windows-signieren.sh, eigenstaendig)
+#   Danach fuehrt scripts/mitschnitt-veroeffentlichen.sh die Bausteine aus
+#   allen Laeufen zu einer gemeinsamen latest.json zusammen und erstellt das
+#   GitHub-Release.
+#
 # WARUM DIE REIHENFOLGE SO IST (gemessen 22.09.2026, erster Lauf dieses Wegs):
 #
-#   1. bauen (unsigniert/ad-hoc)      -- tauri build erzeugt dabei bereits ein
-#      Updater-Archiv samt Signatur, WEIL bundle.createUpdaterArtifacts=true
-#      und die Schluessel gesetzt sind. Dieses Archiv wird VERWORFEN: es
-#      stammt aus dem noch nicht Developer-ID-signierten, nicht notarisierten
-#      Bundle. Wer es doch ausliefert, verschickt Gatekeeper-Warnungen.
+#   1. bauen (unsigniert/ad-hoc)      -- tauri build erzeugt dabei KEINE
+#      Updater-Artefakte (bundle.createUpdaterArtifacts=false). Das Archiv
+#      aus diesem Bau wird verworfen; das echte Updater-Archiv entsteht
+#      weiter unten aus dem notarisierten Bundle.
 #   2. mit der eigenen Developer-ID signieren (wie mitschnitt-deploy.sh)
 #   3. notarisieren + Ticket anheften (mitschnitt-notarisieren.sh, unveraendert
 #      wiederverwendet -- das GESTAPELTE Bundle ist das, was am Ende beim
@@ -47,29 +55,52 @@
 #     Umgebungsvariablen fuer die Dauer dieses Laufs.
 #
 # Aufruf:
-#   scripts/mitschnitt-release.sh <version> [--hochladen]
+#   scripts/mitschnitt-release.sh <version> [--ziel aarch64|x86_64]
 #
 #   <version>      z.B. 0.2.0 -- wird in Cargo.toml UND package.json gesetzt.
-#   --hochladen    zusaetzlich als GitHub-Release veroeffentlichen (gh release
-#                  create, Repo simeonzickert/mitschnitt). Standard: AUS. Ohne
-#                  den Schalter bleibt alles lokal unter dem Ausgabeordner --
-#                  kein Push, kein Release, nichts Oeffentliches.
+#   --ziel <wert>  Ziel-Architektur: aarch64 (Default, Apple Silicon) oder
+#                  x86_64 (Intel, quer gebaut auf Apple-Silicon-Host).
+#                  Auch --ziel=<wert> erlaubt.
+#
+#   Veroeffentlichen ist ein eigener Schritt nach allen Plattform-Laeufen:
+#   scripts/mitschnitt-veroeffentlichen.sh <version>
 
 set -euo pipefail
 
 if [ $# -lt 1 ]; then
-  echo "FEHLER: Aufruf ist scripts/mitschnitt-release.sh <version> [--hochladen]" >&2
+  echo "FEHLER: Aufruf ist scripts/mitschnitt-release.sh <version> [--ziel aarch64|x86_64]" >&2
   exit 2
 fi
 VERSION="$1"
 shift
 HOCHLADEN=0
-for arg in "$@"; do
-  case "$arg" in
-    --hochladen) HOCHLADEN=1 ;;
-    *) echo "FEHLER: unbekannter Schalter '$arg' (erlaubt: --hochladen)" >&2; exit 2 ;;
+ZIEL="aarch64"
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --hochladen) HOCHLADEN=1; shift ;;
+    --ziel=*) ZIEL="${1#--ziel=}"; shift ;;
+    --ziel) 
+      if [ $# -lt 2 ]; then
+        echo "FEHLER: --ziel braucht einen Wert (aarch64 oder x86_64)." >&2
+        exit 2
+      fi
+      ZIEL="$2"; shift 2 ;;
+    *) echo "FEHLER: unbekannter Schalter '$1' (erlaubt: --ziel aarch64|x86_64)" >&2; exit 2 ;;
   esac
 done
+
+# --hochladen ist hier nicht mehr erlaubt: Veroeffentlichen ist ein eigener
+# Schritt nach allen Plattform-Laeufen.
+if [ "$HOCHLADEN" = "1" ]; then
+  echo "FEHLER: Veroeffentlichen ist ein eigener Schritt nach allen Plattform-Laeufen: scripts/mitschnitt-veroeffentlichen.sh <version>" >&2
+  exit 2
+fi
+
+# Ziel-Architektur validieren
+case "$ZIEL" in
+  aarch64|x86_64) ;;
+  *) echo "FEHLER: unbekannte Ziel-Architektur '$ZIEL' (erlaubt: aarch64, x86_64)" >&2; exit 2 ;;
+esac
 
 # Echter Semver-Regex, nicht ein Glob: `[0-9]*.[0-9]*.[0-9]*` liess wegen des
 # `*` hinter jeder Ziffernklasse auch "1.2.3-beta" oder "1.a.3" durch, solange
@@ -81,9 +112,40 @@ fi
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DESKTOP_DIR="$REPO_ROOT/apps/desktop"
-BUNDLE_SRC="$DESKTOP_DIR/src-tauri/target/release/bundle/macos/Mitschnitt.app"
 BUNDLE_ID="media.zickert.mitschnitt"
 RELEASE_REPO="simeonzickert/mitschnitt"
+
+# RUST_TRIPLE und Ziel-spezifische Pfade
+if [ "$ZIEL" = "aarch64" ]; then
+  RUST_TRIPLE="aarch64-apple-darwin"
+  ARCHIV_NAME="Mitschnitt.app.tar.gz"
+  DMG_NAME="Mitschnitt-$VERSION.dmg"
+  PLATTFORM_KEY="darwin-aarch64"
+  # lipo-Schreibweise der Zielarchitektur fuer den LGPL-Waechter. Der Waechter
+  # laeuft als Kindprozess von mitschnitt-notarisieren.sh und erbt die
+  # Umgebung; ohne diesen Wert prueft er gegen seinen Default arm64 und macht
+  # jedes x86_64-Bundle dauerhaft rot (gemessen 28.09.2026).
+  LGPL_ARCH="arm64"
+  # Bei aarch64 OHNE --target bauen (wie heute), damit der Pfad bitgleich bleibt
+  TAURI_TARGET_ARGS=""
+  BUNDLE_SRC="$DESKTOP_DIR/src-tauri/target/release/bundle/macos/Mitschnitt.app"
+  # Pruefe, ob CARGO_TARGET_DIR gesetzt ist -- wenn ja, liegt das Bundle dort
+  if [ -n "${CARGO_TARGET_DIR:-}" ]; then
+    BUNDLE_SRC="$CARGO_TARGET_DIR/release/bundle/macos/Mitschnitt.app"
+  fi
+else
+  RUST_TRIPLE="x86_64-apple-darwin"
+  ARCHIV_NAME="Mitschnitt-x86_64.app.tar.gz"
+  DMG_NAME="Mitschnitt-$VERSION-Intel.dmg"
+  PLATTFORM_KEY="darwin-x86_64"
+  LGPL_ARCH="x86_64"
+  TAURI_TARGET_ARGS="--target $RUST_TRIPLE"
+  # Bei x86_64 mit --target bauen, Pfad enthaelt dann den Triple
+  BUNDLE_SRC="$DESKTOP_DIR/src-tauri/target/$RUST_TRIPLE/release/bundle/macos/Mitschnitt.app"
+  if [ -n "${CARGO_TARGET_DIR:-}" ]; then
+    BUNDLE_SRC="$CARGO_TARGET_DIR/$RUST_TRIPLE/release/bundle/macos/Mitschnitt.app"
+  fi
+fi
 
 # Wie in mitschnitt-deploy.sh und mitschnitt-notarisieren.sh: die Signatur-
 # Identitaet traegt den Klarnamen des Zertifikatsinhabers und steht deshalb
@@ -99,22 +161,33 @@ SIGN_ID="${MITSCHNITT_SIGN_IDENTITY:?MITSCHNITT_SIGN_IDENTITY setzen (Developer-
 # eine Bedeutung. Ebenfalls Pflicht statt Default mit echtem Plattenpfad.
 OUT_ROOT="${MITSCHNITT_RELEASE_DIR:?MITSCHNITT_RELEASE_DIR setzen (Zielordner fuer die Release-Ausgabe)}"
 OUT_DIR="$OUT_ROOT/v$VERSION"
-NOTAR_WORK="$OUT_DIR/_notar-work"
+# Arbeitsordner je Ziel trennen, damit zwei Laeufe im selben Versionsordner
+# sich nicht ueberschreiben
+NOTAR_WORK="$OUT_DIR/_notar-work-$ZIEL"
 
 log() { printf '\n\033[1m==> %s\033[0m\n' "$1"; }
 
 log "Voraussetzungen pruefen"
-# latest.json traegt weiter unten eine feste Plattform-Kennung. Auf einem
-# Intel-Mac gebaut waere das ein x86_64-Bundle unter der arm64-Kennung --
-# jeder arm64-Rechner wuerde es als passendes Update herunterladen und
-# scheitern. Erzwungen hier, VOR dem Bau, damit kein Aufwand in ein Ergebnis
-# faellt, das ohnehin verworfen werden muesste.
+# Nur auf Apple-Silicon-Hosts erlaubt (uname -m = arm64)
 if [ "$(uname -m)" != "arm64" ]; then
   echo "FEHLER: dieses Skript baut nur auf Apple Silicon (uname -m = arm64)." >&2
-  echo "        Auf x86_64 wuerde latest.json ein x86_64-Bundle trotzdem als" >&2
-  echo "        darwin-aarch64 veroeffentlichen." >&2
+  echo "        Auf x86_64-Hosts wird nicht unterstuetzt." >&2
   exit 1
 fi
+
+# Bei x86_64-Ziel pruefen, ob der Rust-Target installiert ist
+if [ "$ZIEL" = "x86_64" ]; then
+  # Im Repo-Ordner fragen: rust-toolchain.toml pinnt eine eigene Toolchain,
+  # und nur deren Ziele zaehlen (gemessen 28.09.2026: Ziel an der Standard-
+  # Toolchain installiert, am gepinnten 1.94.0 nicht -> "can't find crate
+  # for core").
+  if ! (cd "$REPO_ROOT" && rustup target list --installed) | grep -q "^x86_64-apple-darwin$"; then
+    echo "FEHLER: Rust-Target 'x86_64-apple-darwin' ist nicht installiert." >&2
+    echo "        Bitte nachinstallieren: (cd \"$REPO_ROOT\" && rustup target add x86_64-apple-darwin)" >&2
+    exit 1
+  fi
+fi
+
 if ! security find-identity -v -p codesigning | grep -qF "$SIGN_ID"; then
   # Der Klarname aus dem Zertifikat gehoert nicht in ein Log -- die Nachricht
   # nennt nur die Variable, nicht ihren Wert (Forge-Zweitblick 27.09.2026).
@@ -123,10 +196,6 @@ if ! security find-identity -v -p codesigning | grep -qF "$SIGN_ID"; then
 fi
 if ! xcrun notarytool history --keychain-profile mitschnitt-notar >/dev/null 2>&1; then
   echo "FEHLER: Notarisierungs-Profil 'mitschnitt-notar' fehlt oder ist ungueltig." >&2
-  exit 1
-fi
-if [ "$HOCHLADEN" = "1" ] && ! command -v gh >/dev/null 2>&1; then
-  echo "FEHLER: --hochladen verlangt die gh-CLI, die ist nicht installiert." >&2
   exit 1
 fi
 
@@ -139,9 +208,6 @@ log "Changelog fuer $VERSION pruefen"
 # selbst prueft ausfuehrlich (scripts/changelog-extract.sh), hier nur der
 # Abbruch mit Ansage, damit niemand erst nach dem vollen Bau merkt, dass der
 # Changelog-Eintrag fehlt.
-# CHANGELOG_FILE ist der PFAD zu CHANGELOG.md -- nicht zu verwechseln mit
-# CHANGELOG_MD weiter unten, das ist der bereits ausgelesene Markdown-Text
-# fuer "### What's new".
 CHANGELOG_FILE="$REPO_ROOT/CHANGELOG.md"
 if ! "$REPO_ROOT/scripts/changelog-extract.sh" "$CHANGELOG_FILE" "$VERSION" what-new >/dev/null; then
   echo "FEHLER: CHANGELOG.md hat keinen (oder einen leeren) Abschnitt fuer $VERSION." >&2
@@ -202,26 +268,59 @@ log "Geteiltes UI-Paket bauen (@anlg/ui/globals.css)"
 pnpm --dir "$REPO_ROOT" --filter @anlg/ui build
 
 log "Spiegel-Befehl (CLI-Sidecar) bauen"
-CLI_TRIPLE="$(uname -m)-apple-darwin"
-[ "$(uname -m)" = "arm64" ] && CLI_TRIPLE="aarch64-apple-darwin"
-CLI_RESOURCE="$DESKTOP_DIR/src-tauri/resources/cli/mitschnitt-cli-$CLI_TRIPLE"
-cargo build --release -p mitschnitt-cli --manifest-path "$REPO_ROOT/Cargo.toml"
-install -m 0755 "$REPO_ROOT/target/release/mitschnitt" "$CLI_RESOURCE"
+CLI_RESOURCE="$DESKTOP_DIR/src-tauri/resources/cli/mitschnitt-cli-$RUST_TRIPLE"
+cargo build --release -p mitschnitt-cli --target "$RUST_TRIPLE" --manifest-path "$REPO_ROOT/Cargo.toml"
+install -m 0755 "${CARGO_TARGET_DIR:-$REPO_ROOT/target}/$RUST_TRIPLE/release/mitschnitt" "$CLI_RESOURCE"
 [ -x "$CLI_RESOURCE" ] || { echo "FEHLER: Sidecar fehlt unter $CLI_RESOURCE" >&2; exit 1; }
-"$CLI_RESOURCE" --version >/dev/null || { echo "FEHLER: gebautes Sidecar laeuft nicht." >&2; exit 1; }
 
-log "Bauen (Release, mit Updater-Artefakten)"
-# Der Bau erzeugt hier bereits ein Mitschnitt.app.tar.gz + .sig, weil
-# bundle.createUpdaterArtifacts=true ist und die Schluessel oben gesetzt sind.
-# Das ist ABSICHTLICH und dient nur als frueher Beweis, dass Schluessel und
-# Endpunkt technisch zusammenpassen -- das fuer Menschen bestimmte Archiv
-# entsteht weiter unten aus dem NOTARISIERTEN Bundle, nicht aus diesem.
+# Probelauf des Sidecars: bei x86_64 ueber Rosetta, wenn verfuegbar.
+# IMMER auch die Architektur des Binaries mit lipo pruefen.
+if [ "$ZIEL" = "x86_64" ]; then
+  # Pruefen, ob Rosetta verfuegbar ist
+  if /usr/bin/pgrep oahd >/dev/null 2>&1 || arch -x86_64 /usr/bin/true 2>/dev/null; then
+    "$CLI_RESOURCE" --version >/dev/null || { echo "FEHLER: gebautes Sidecar (x86_64) laeuft nicht ueber Rosetta." >&2; exit 1; }
+  else
+    echo "WARNUNG: Rosetta nicht verfuegbar, Sidecar-Probelauf uebersprungen." >&2
+  fi
+  # lipo-Prüfung IMMER, unabhaengig von Rosetta-Verfuegbarkeit
+  if command -v lipo >/dev/null 2>&1; then
+    CLI_ARCH="$(lipo -archs "$CLI_RESOURCE")"
+    if [ "$CLI_ARCH" != "x86_64" ]; then
+      echo "FEHLER: Sidecar hat Architektur '$CLI_ARCH', erwartet 'x86_64'." >&2
+      exit 1
+    fi
+  fi
+else
+  "$CLI_RESOURCE" --version >/dev/null || { echo "FEHLER: gebautes Sidecar laeuft nicht." >&2; exit 1; }
+  # lipo-Prüfung auch fuer aarch64
+  if command -v lipo >/dev/null 2>&1; then
+    CLI_ARCH="$(lipo -archs "$CLI_RESOURCE")"
+    if [ "$CLI_ARCH" != "arm64" ]; then
+      echo "FEHLER: Sidecar hat Architektur '$CLI_ARCH', erwartet 'arm64'." >&2
+      exit 1
+    fi
+  fi
+fi
+
+log "Bauen (Release, OHNE Updater-Artefakte)"
+# Der Bau erzeugt KEINE Updater-Artefakte (bundle.createUpdaterArtifacts=false).
+# Das Archiv aus diesem Bau wird verworfen; das echte Updater-Archiv entsteht
+# weiter unten aus dem notarisierten Bundle. Die Schluessel werden NICHT als
+# Praefix mitgegeben, damit sie nicht an Kindprozesse (Vite, build.rs fremder
+# Crates) vererbt werden.
 MARKER=$(mktemp -t mitschnitt-release-bau)
 trap 'rm -f "$MARKER"' EXIT
 cd "$DESKTOP_DIR"
-TAURI_SIGNING_PRIVATE_KEY="$TAURI_SIGNING_PRIVATE_KEY" \
-  TAURI_SIGNING_PRIVATE_KEY_PASSWORD="$TAURI_SIGNING_PRIVATE_KEY_PASSWORD" \
-  pnpm exec tauri build --bundles app
+
+# Vor dem Bau: vendor/mp3lame-sys/build.rs anfassen, damit cargo das
+# Build-Skript fuer DIESES Ziel neu laufen laesst. Grund: build.rs legt
+# libmp3lame.0.dylib an einem festen Ort ohne Architektur ab
+# (vendor/lame-dylib/) und hat kein rerun-if. Nach einem Intel-Lauf kann
+# ein folgender Apple-Silicon-Lauf aus seinem Cache eine x86_64-Bibliothek
+# einpacken; die App startet dann auf keinem Apple-Silicon-Mac mehr.
+touch "$REPO_ROOT/vendor/mp3lame-sys/build.rs"
+
+pnpm exec tauri build --bundles app --config '{"bundle":{"createUpdaterArtifacts":false}}' $TAURI_TARGET_ARGS
 [ -d "$BUNDLE_SRC" ] || { echo "FEHLER: kein Bundle unter $BUNDLE_SRC" >&2; exit 1; }
 [ "$BUNDLE_SRC" -nt "$MARKER" ] || {
   echo "FEHLER: das Bundle ist aelter als der Beginn dieses Laufs." >&2
@@ -230,12 +329,78 @@ TAURI_SIGNING_PRIVATE_KEY="$TAURI_SIGNING_PRIVATE_KEY" \
 
 mkdir -p "$OUT_DIR"
 
+log "Architektur aller Mach-O-Dateien im Bundle pruefen"
+# Direkt NACH dem Bau und VOR dem Signieren: jede Mach-O-Datei im Bundle
+# auf die korrekte Zielarchitektur pruefen. Ausnahme: Dateien unter
+# Contents/Resources/cli/, deren Name auf "-<anderes Triple>" endet
+# (das Bundle nimmt den ganzen cli-Ordner mit; die App waehlt zur Laufzeit
+# nach Triple). FALSCH_ARCH sammelt alle Abweichungen fuer die Fehlermeldung.
+FALSCH_ARCH=""
+MACHO_ANZAHL=0
+command -v lipo >/dev/null 2>&1 || { echo "FEHLER: lipo fehlt (Xcode-Kommandozeilenwerkzeuge)." >&2; exit 1; }
+while IFS= read -r -d '' DATEI; do
+  # Pruefen, ob es eine Mach-O-Datei ist
+  DATEI_TYP="$(file -b "$DATEI")"
+  case "$DATEI_TYP" in
+    # file schreibt "Mach-O" mit Bindestrich (gemessen 28.09.2026 an
+    # libmp3lame.0.dylib: "Mach-O 64-bit dynamically linked shared library
+    # arm64"). Ein Muster mit Leerzeichen traefe nie und machte die ganze
+    # Pruefung still wirkungslos.
+    *Mach-O*) MACHO_ANZAHL=$((MACHO_ANZAHL + 1)) ;;
+    *) continue ;;
+  esac
+  # Relative Pfadkomponente fuer die Ausnahme-Prüfung
+  REL_PFAD="${DATEI#$BUNDLE_SRC/}"
+  # Ausnahme: Dateien unter Contents/Resources/cli/, deren Name auf
+  # "-<anderes Triple>" endet, werden uebersprungen
+  if [[ "$REL_PFAD" == Contents/Resources/cli/* ]]; then
+    DATEI_NAME="$(basename "$DATEI")"
+    # Prüfen, ob der Name auf "-$RUST_TRIPLE" endet
+    if [[ "$DATEI_NAME" != *"-$RUST_TRIPLE" ]]; then
+      # Das ist eine CLI-Datei fuer eine andere Architektur -> ueberspringen
+      continue
+    fi
+  fi
+  # lipo -archs ausfuehren
+  if true; then
+    GEFUNDENE_ARCH="$(lipo -archs "$DATEI" 2>/dev/null || true)"
+    if [ -z "$GEFUNDENE_ARCH" ]; then
+      FALSCH_ARCH="$FALSCH_ARCH  $REL_PFAD: keine Architektur (kein Mach-O?)\n"
+    else
+      ERWARTET=""
+      [ "$ZIEL" = "aarch64" ] && ERWARTET="arm64"
+      [ "$ZIEL" = "x86_64" ] && ERWARTET="x86_64"
+      if [ "$GEFUNDENE_ARCH" != "$ERWARTET" ]; then
+        FALSCH_ARCH="$FALSCH_ARCH  $REL_PFAD: $GEFUNDENE_ARCH (erwartet $ERWARTET)\n"
+      fi
+    fi
+  fi
+done < <(find "$BUNDLE_SRC/Contents/MacOS" "$BUNDLE_SRC/Contents/Frameworks" "$BUNDLE_SRC/Contents/Resources" -type f -print0)
+# Mindestens Haupt-Binary + libmp3lame muessen gefunden worden sein -- sonst
+# hat die Pruefung selbst nichts gesehen und waere kein Beweis.
+if [ "$MACHO_ANZAHL" -lt 2 ]; then
+  echo "FEHLER: nur $MACHO_ANZAHL Mach-O-Dateien im Bundle gefunden, erwartet mindestens 2 -- Pruefung waere wirkungslos." >&2
+  exit 1
+fi
+echo "Mach-O-Dateien geprueft: $MACHO_ANZAHL"
+if [ -n "$FALSCH_ARCH" ]; then
+  echo "FEHLER: folgende Mach-O-Dateien im Bundle haben die falsche Architektur:" >&2
+  printf "%b" "$FALSCH_ARCH" >&2
+  exit 1
+fi
+# Pruefen, dass mitschnitt-cli-$RUST_TRIPLE vorhanden ist
+CLI_IM_BUNDLE="$BUNDLE_SRC/Contents/Resources/cli/mitschnitt-cli-$RUST_TRIPLE"
+if [ ! -f "$CLI_IM_BUNDLE" ]; then
+  echo "FEHLER: CLI-Sidecar $CLI_IM_BUNDLE fehlt im Bundle." >&2
+  exit 1
+fi
+
 log "Mit der eigenen Developer-ID signieren"
 # Gleicher Schritt wie in mitschnitt-deploy.sh, aber auf einer Arbeitskopie im
 # Ausgabeordner statt in ~/Applications -- dieses Skript fasst die laufende
 # Installation des Betreibers nicht an.
-WORK_APP="$OUT_DIR/_signiert/Mitschnitt.app"
-rm -rf "$OUT_DIR/_signiert"
+WORK_APP="$OUT_DIR/_signiert-$ZIEL/Mitschnitt.app"
+rm -rf "$OUT_DIR/_signiert-$ZIEL"
 mkdir -p "$(dirname "$WORK_APP")"
 cp -R "$BUNDLE_SRC" "$WORK_APP"
 for versuch in 1 2 3; do
@@ -260,10 +425,16 @@ rm -rf "$NOTAR_WORK"
 # auf (der Default griff still in beiden Skripten getrennt); seit SIGN_ID
 # Pflicht ist, wuerde der Aufruf sonst mit einer leeren Pflicht-Variable im
 # Kindprozess sterben, nach dem vollen Bau.
+#
+# MITSCHNITT_LGPL_ARCH zusaetzlich: mitschnitt-notarisieren.sh ruft
+# scripts/lgpl-gate.sh als Kindprozess auf und vererbt seine Umgebung. Ohne
+# diesen Wert prueft der Waechter gegen seinen Default arm64 und macht jedes
+# x86_64-Bundle dauerhaft rot (gemessen 28.09.2026).
 MITSCHNITT_NOTAR_WORK="$NOTAR_WORK" \
   MITSCHNITT_NOTAR_KEIN_ZIP=1 \
   MITSCHNITT_SIGN_IDENTITY="$SIGN_ID" \
   MITSCHNITT_RELEASE_DIR="$OUT_DIR" \
+  MITSCHNITT_LGPL_ARCH="$LGPL_ARCH" \
   "$REPO_ROOT/scripts/mitschnitt-notarisieren.sh" "$WORK_APP" "$OUT_DIR"
 NOTARIZED_APP="$NOTAR_WORK/Mitschnitt.app"
 [ -d "$NOTARIZED_APP" ] || { echo "FEHLER: notarisiertes Bundle fehlt unter $NOTARIZED_APP" >&2; exit 1; }
@@ -274,7 +445,6 @@ log "DMG fuer Menschen packen, signieren, notarisieren, Ticket anheften"
 # Gepackt wird das GESTAPELTE Bundle aus Schritt 3, nie das unsignierte aus
 # dem Bau. mitschnitt-dmg.sh prueft nach dem Packen, dass das Bundle in der
 # DMG bitgleich zum Quell-Bundle ist (Signatur + Ticket unversehrt).
-DMG_NAME="Mitschnitt-$VERSION.dmg"
 DMG_PATH="$OUT_DIR/$DMG_NAME"
 "$REPO_ROOT/scripts/mitschnitt-dmg.sh" "$NOTARIZED_APP" "$DMG_PATH" "Mitschnitt"
 for versuch in 1 2 3; do
@@ -286,7 +456,7 @@ for versuch in 1 2 3; do
   sleep 10
 done
 codesign --verify --verbose=2 "$DMG_PATH" || { echo "FEHLER: DMG-Signatur ungueltig." >&2; exit 1; }
-DMG_SUBMIT_LOG="$OUT_DIR/_dmg-submit.log"
+DMG_SUBMIT_LOG="$OUT_DIR/_dmg-submit-$ZIEL.log"
 xcrun notarytool submit "$DMG_PATH" --keychain-profile mitschnitt-notar --wait 2>&1 | tee "$DMG_SUBMIT_LOG"
 if ! grep -q "status: Accepted" "$DMG_SUBMIT_LOG"; then
   DMG_SID="$(grep -m1 -E '^\s*id:' "$DMG_SUBMIT_LOG" | awk '{print $2}')"
@@ -295,34 +465,47 @@ if ! grep -q "status: Accepted" "$DMG_SUBMIT_LOG"; then
 fi
 xcrun stapler staple "$DMG_PATH"
 xcrun stapler validate "$DMG_PATH"
-spctl -a -t open --context context:primary-signature -vv "$DMG_PATH" 2>&1 | tee "$OUT_DIR/_dmg-spctl.log"
-grep -q "Notarized Developer ID" "$OUT_DIR/_dmg-spctl.log" \
+spctl -a -t open --context context:primary-signature -vv "$DMG_PATH" 2>&1 | tee "$OUT_DIR/_dmg-spctl-$ZIEL.log"
+grep -q "Notarized Developer ID" "$OUT_DIR/_dmg-spctl-$ZIEL.log" \
   || { echo "FEHLER: spctl meldet fuer die DMG kein 'Notarized Developer ID'." >&2; exit 1; }
 
-log "Architektur des notarisierten Bundles feststellen"
+log "Architektur des notarisierten Bundles feststellen und gegen Ziel pruefen"
 # latest.json muss die ECHTE Architektur des gebauten Binaries tragen, nicht
 # eine hart geschriebene. Der arm64-Zwang oben verhindert das Naheliegendste
 # (auf x86_64 gebaut), nicht aber z.B. ein per --target quer gebautes
-# Binary -- deshalb wird hier zusaetzlich am fertigen Bundle gemessen.
+# Binary -- deshalb wird hier zusaetzlich am fertigen Bundle gemessen und
+# gegen das Ziel geprueft.
 NOTARIZED_EXE_NAME="$(defaults read "$NOTARIZED_APP/Contents/Info.plist" CFBundleExecutable)"
 BUNDLE_ARCH="$(lipo -archs "$NOTARIZED_APP/Contents/MacOS/$NOTARIZED_EXE_NAME")"
 case "$BUNDLE_ARCH" in
-  arm64) PLATFORM_KEY="darwin-aarch64" ;;
-  x86_64) PLATFORM_KEY="darwin-x86_64" ;;
+  arm64) ;;
+  x86_64) ;;
   *)
     echo "FEHLER: unerwartete/gemischte Architektur im gebauten Binary: '$BUNDLE_ARCH'" >&2
     exit 1
     ;;
 esac
-echo "Architektur: $BUNDLE_ARCH -> $PLATFORM_KEY"
+# Pruefen, ob die tatsaechliche Architektur dem Ziel entspricht. lipo nennt
+# Apple Silicon "arm64", Rust/--ziel nennt es "aarch64" -- vor dem Vergleich
+# auf eine Schreibweise bringen, sonst bricht jeder Apple-Silicon-Lauf hier ab.
+BUNDLE_ZIEL="$BUNDLE_ARCH"
+[ "$BUNDLE_ARCH" = "arm64" ] && BUNDLE_ZIEL="aarch64"
+if [ "$BUNDLE_ZIEL" != "$ZIEL" ]; then
+  echo "FEHLER: Bundle-Architektur '$BUNDLE_ARCH' entspricht nicht dem Ziel '$ZIEL'." >&2
+  exit 1
+fi
+echo "Architektur: $BUNDLE_ARCH -> $PLATTFORM_KEY"
 
 log "Updater-Archiv aus dem notarisierten Bundle bauen"
-UPDATE_ARCHIVE="$OUT_DIR/Mitschnitt.app.tar.gz"
+UPDATE_ARCHIVE="$OUT_DIR/$ARCHIV_NAME"
 rm -f "$UPDATE_ARCHIVE"
+# Das Archiv im tar nur "Mitschnitt.app" nennen (Updater-Format), die Datei
+# selbst aber hat den Ziel-spezifischen Namen
 tar -czf "$UPDATE_ARCHIVE" -C "$NOTAR_WORK" "Mitschnitt.app"
 [ -s "$UPDATE_ARCHIVE" ] || { echo "FEHLER: $UPDATE_ARCHIVE ist leer oder fehlt." >&2; exit 1; }
 
 log "Updater-Archiv signieren (Minisign, derselbe Schluessel wie das eingebettete pubkey)"
+# Die Schluessel gehen NUR an den tauri signer sign-Aufruf, nicht an den Bau.
 TAURI_SIGNING_PRIVATE_KEY="$TAURI_SIGNING_PRIVATE_KEY" \
   TAURI_SIGNING_PRIVATE_KEY_PASSWORD="$TAURI_SIGNING_PRIVATE_KEY_PASSWORD" \
   pnpm --dir "$DESKTOP_DIR" exec tauri signer sign "$UPDATE_ARCHIVE"
@@ -330,47 +513,32 @@ SIGNATURE_FILE="$UPDATE_ARCHIVE.sig"
 [ -s "$SIGNATURE_FILE" ] || { echo "FEHLER: $SIGNATURE_FILE ist leer oder fehlt." >&2; exit 1; }
 
 log "Changelog-Text aus CHANGELOG.md auslesen"
-# Eine Quelle (CHANGELOG.md), drei Verwendungen: NOTES_PLAIN geht unten in
+# Eine Quelle (CHANGELOG.md), zwei Verwendungen: NOTES_PLAIN geht unten in
 # latest.json (der Tauri-Updater-Dialog rendert kein Markdown, deshalb
-# Klartext ohne Links/Betonung), CHANGELOG_MD und NOTE_MD gehen weiter unten
-# in die GitHub-Release-Notiz (die rendert Markdown, deshalb unveraendert).
-# Der fruehe Check oben hat schon sichergestellt, dass der Abschnitt da ist
-# -- diese drei Aufrufe koennen an sich nicht mehr fehlschlagen, ausser die
-# Datei aenderte sich waehrend des ~20-min-Baus unter uns weg.
+# Klartext ohne Links/Betonung). Der fruehe Check oben hat schon sichergestellt,
+# dass der Abschnitt da ist -- dieser Aufruf kann an sich nicht mehr
+# fehlschlagen, ausser die Datei aenderte sich waehrend des ~20-min-Baus unter
+# uns weg.
 NOTES_PLAIN="$("$REPO_ROOT/scripts/changelog-extract.sh" "$CHANGELOG_FILE" "$VERSION" notes-plain)"
-CHANGELOG_MD="$("$REPO_ROOT/scripts/changelog-extract.sh" "$CHANGELOG_FILE" "$VERSION" what-new)"
-NOTE_MD="$("$REPO_ROOT/scripts/changelog-extract.sh" "$CHANGELOG_FILE" "$VERSION" note)"
 
-log "latest.json schreiben"
-DOWNLOAD_URL="https://github.com/$RELEASE_REPO/releases/download/v$VERSION/Mitschnitt.app.tar.gz"
+log "Baustein fuer Update-Feed erzeugen (mitschnitt-feed.py baustein)"
+# latest.json schreibt das Skript NICHT mehr selbst. Stattdessen wird ein
+# Baustein fuer die spaetere Zusammenfuehrung erzeugt.
+ARCHIV_URL="https://github.com/$RELEASE_REPO/releases/download/v$VERSION/$ARCHIV_NAME"
 PUB_DATE="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
-LATEST_JSON="$OUT_DIR/latest.json"
-python3 - "$LATEST_JSON" "$VERSION" "$NOTES_PLAIN" "$PUB_DATE" "$SIGNATURE_FILE" "$DOWNLOAD_URL" "$PLATFORM_KEY" <<'PY'
-import json
-import sys
+python3 "$REPO_ROOT/scripts/mitschnitt-feed.py" baustein \
+  --ausgabe "$OUT_DIR" \
+  --version "$VERSION" \
+  --plattform "$PLATTFORM_KEY" \
+  --sig "$SIGNATURE_FILE" \
+  --datei "$UPDATE_ARCHIVE" \
+  --url "$ARCHIV_URL" \
+  --notes "$NOTES_PLAIN" \
+  --pub-date "$PUB_DATE"
 
-out_path, version, notes, pub_date, sig_path, url, platform_key = sys.argv[1:8]
-with open(sig_path) as f:
-    signature = f.read().strip()
-
-data = {
-    "version": version,
-    "notes": notes,
-    "pub_date": pub_date,
-    "platforms": {
-        platform_key: {
-            "signature": signature,
-            "url": url,
-        }
-    },
-}
-
-with open(out_path, "w") as f:
-    json.dump(data, f, indent=2, ensure_ascii=False)
-    f.write("\n")
-PY
-python3 -c "import json,sys; json.load(open(sys.argv[1]))" "$LATEST_JSON" \
-  || { echo "FEHLER: $LATEST_JSON ist kein gueltiges JSON." >&2; exit 1; }
+log "Bausteine zusammenfuehren (Vorschau: mitschnitt-feed.py zusammenfuehren)"
+python3 "$REPO_ROOT/scripts/mitschnitt-feed.py" zusammenfuehren \
+  --ausgabe "$OUT_DIR"
 
 # Versions-Bump committen -- ERST hier am Ende, nicht gleich nach dem Setzen
 # oben: Cargo.lock traegt die Versionszeile des "desktop"-Pakets ebenfalls,
@@ -388,122 +556,12 @@ if [ "$VERSION_BUMPED" = "1" ]; then
   fi
 fi
 
-log "Release-Notiz schreiben (Download-Link auf die DMG zuerst)"
-# Die GitHub-Seite zeigt alle Anhaenge gleichrangig. Die Notiz fuehrt deshalb
-# mit EINEM Download-Link auf die DMG und kennzeichnet die Updater-Dateien als
-# nicht fuer Menschen. Vorlage: docs/release-notes-template.md.
-RELEASE_NOTES="$OUT_DIR/release-notes.md"
-python3 - "$REPO_ROOT/docs/release-notes-template.md" "$RELEASE_NOTES" "$VERSION" \
-  "https://github.com/$RELEASE_REPO/releases/download/v$VERSION/$DMG_NAME" "$DMG_NAME" \
-  "$CHANGELOG_MD" "$NOTE_MD" <<'PY'
-import sys
-tpl, out, version, dmg_url, dmg_name, changelog, note = sys.argv[1:8]
-text = open(tpl).read()
-# Kommentarblock der Vorlage (zwischen <!-- und -->) nicht mitveroeffentlichen.
-while "<!--" in text:
-    a = text.index("<!--")
-    b = text.index("-->", a) + 3
-    text = text[:a] + text[b:]
-for key, val in {"{{VERSION}}": version, "{{DMG_URL}}": dmg_url,
-                 "{{DMG_NAME}}": dmg_name}.items():
-    text = text.replace(key, val)
-# {{NOTE}} als Markdown-Blockquote einsetzen (jede Zeile mit "> " davor,
-# eine leere Zeile im Hinweis wird zu einer blossen ">" -- gaengige Konvention
-# fuer mehrzeilige Blockquotes). Traegt die Version keinen Note-Abschnitt,
-# ist note="" und note_block bleibt leer, die Zeile verschwindet einfach.
-if note:
-    note_block = "\n".join("> " + zeile if zeile else ">" for zeile in note.split("\n"))
-else:
-    note_block = ""
-# Pruefen VOR dem Einsetzen von Changelog/Note: deren Text darf selbst "{{" tragen.
-platzhalter_frei = text.replace("{{CHANGELOG}}", "").replace("{{NOTE}}", "")
-if "{{" in platzhalter_frei:
-    sys.exit("FEHLER: unaufgeloester Platzhalter in der Release-Notiz")
-text = text.replace("{{CHANGELOG}}", changelog).replace("{{NOTE}}", note_block)
-open(out, "w").write(text.lstrip())
-PY
-
 log "Fertig -- Ausgabeordner: $OUT_DIR"
 ls -la "$OUT_DIR"
 echo
 echo "Updater-Archiv:  $UPDATE_ARCHIVE"
 echo "Signatur:        $SIGNATURE_FILE"
-echo "Update-Feed:     $LATEST_JSON"
 echo "DMG fuer Menschen: $DMG_PATH"
-echo "Release-Notiz:     $RELEASE_NOTES"
-
-if [ "$HOCHLADEN" = "1" ]; then
-  # Erst als Entwurf anlegen, ALLE vier Dateien hochladen, dann vollstaendig
-  # verifizieren -- und nur bei Erfolg veroeffentlichen. "gh release create"
-  # mit direktem "--latest" veroeffentlicht sofort und laedt danach einzeln
-  # hoch; scheitert z.B. der letzte Upload (die DMG), bliebe ein als "latest"
-  # markiertes Release mit Updater-Dateien, aber ohne DMG zurueck, und die
-  # Release-Notiz zeigte auf eine nicht vorhandene Datei (Forge-Zweitblick
-  # 27.09.2026). Ein Entwurf ist dagegen nicht oeffentlich sichtbar, bis wir
-  # ihn explizit veroeffentlichen. "gh release view/edit <tag>" findet einen
-  # Entwurf ueber denselben Tag-Namen zuverlaessig (gh loest einen Tag-Namen
-  # ueber eine parallele REST- UND GraphQL-Abfrage auf, letztere greift genau
-  # fuer noch unveroeffentlichte Entwuerfe -- geprueft gegen den gh-Quelltext,
-  # nicht nur vermutet).
-  log "Als Entwurf anlegen und alle vier Dateien hochladen ($RELEASE_REPO, v$VERSION)"
-  if ! gh release create "v$VERSION" \
-      "$UPDATE_ARCHIVE" \
-      "$SIGNATURE_FILE" \
-      "$LATEST_JSON" \
-      "$DMG_PATH" \
-      --repo "$RELEASE_REPO" \
-      --title "v$VERSION" \
-      --notes-file "$RELEASE_NOTES" \
-      --draft; then
-    echo "FEHLER: Entwurf v$VERSION liess sich nicht vollstaendig anlegen (Upload gescheitert?)." >&2
-    echo "        Ein teilweise hochgeladener Entwurf bleibt dabei auf GitHub stehen, nichts wurde" >&2
-    echo "        veroeffentlicht. Pruefen: gh release view \"v$VERSION\" --repo \"$RELEASE_REPO\"" >&2
-    exit 1
-  fi
-
-  log "Entwurf pruefen: genau vier Dateien mit der erwarteten Groesse"
-  if ! ASSETS_TSV="$(gh release view "v$VERSION" --repo "$RELEASE_REPO" \
-      --json assets --jq '.assets[] | "\(.name)\t\(.size)"')"; then
-    echo "FEHLER: Entwurf v$VERSION liess sich nicht auslesen (gh release view)." >&2
-    echo "        Der Entwurf bleibt auf GitHub stehen, nichts wurde veroeffentlicht." >&2
-    exit 1
-  fi
-  ANZAHL_ASSETS="$(printf '%s\n' "$ASSETS_TSV" | grep -c . || true)"
-  ASSET_PRUEFUNG_OK=1
-  if [ "$ANZAHL_ASSETS" != "4" ]; then
-    echo "FEHLER: Entwurf traegt $ANZAHL_ASSETS Assets, erwartet werden genau 4." >&2
-    ASSET_PRUEFUNG_OK=0
-  fi
-  declare -A GEFUNDENE_GROESSEN=()
-  while IFS=$'\t' read -r ASSET_NAME ASSET_GROESSE; do
-    [ -n "$ASSET_NAME" ] && GEFUNDENE_GROESSEN["$ASSET_NAME"]="$ASSET_GROESSE"
-  done <<< "$ASSETS_TSV"
-  declare -A ERWARTETE_GROESSEN=(
-    ["$(basename "$UPDATE_ARCHIVE")"]="$(stat -f%z "$UPDATE_ARCHIVE")"
-    ["$(basename "$SIGNATURE_FILE")"]="$(stat -f%z "$SIGNATURE_FILE")"
-    ["$(basename "$LATEST_JSON")"]="$(stat -f%z "$LATEST_JSON")"
-    ["$DMG_NAME"]="$(stat -f%z "$DMG_PATH")"
-  )
-  for ASSET_NAME in "${!ERWARTETE_GROESSEN[@]}"; do
-    ERWARTET="${ERWARTETE_GROESSEN[$ASSET_NAME]}"
-    GEFUNDEN="${GEFUNDENE_GROESSEN[$ASSET_NAME]:-}"
-    if [ "$GEFUNDEN" != "$ERWARTET" ]; then
-      echo "FEHLER: Asset '$ASSET_NAME' fehlt im Entwurf oder hat falsche Groesse (erwartet $ERWARTET Byte, gefunden ${GEFUNDEN:-fehlt})." >&2
-      ASSET_PRUEFUNG_OK=0
-    fi
-  done
-
-  if [ "$ASSET_PRUEFUNG_OK" != "1" ]; then
-    echo "FEHLER: Entwurf v$VERSION bleibt ein Draft auf GitHub -- NICHT veroeffentlicht." >&2
-    echo "        Fehlende/falsche Datei nachschieben: gh release upload \"v$VERSION\" <Datei> --repo \"$RELEASE_REPO\" --clobber" >&2
-    echo "        Danach diesen Lauf erneut mit --hochladen versuchen, oder von Hand veroeffentlichen:" >&2
-    echo "        gh release edit \"v$VERSION\" --repo \"$RELEASE_REPO\" --draft=false --latest" >&2
-    exit 1
-  fi
-
-  log "Vollstaendig -- veroeffentlichen und als 'latest' markieren"
-  gh release edit "v$VERSION" --repo "$RELEASE_REPO" --draft=false --latest
-else
-  echo
-  echo "Nicht hochgeladen (--hochladen fehlt). Alles bleibt lokal unter $OUT_DIR."
-fi
+echo
+echo "Veroeffentlichen ist ein eigener Schritt nach allen Plattform-Laeufen:"
+echo "  scripts/mitschnitt-veroeffentlichen.sh $VERSION"
