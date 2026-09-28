@@ -1,9 +1,11 @@
+import { t } from "@lingui/core/macro";
+
 import { md2json } from "@anlg/editor/markdown";
 import type { SessionEvent } from "@anlg/store";
 
 import { liveQueryClient } from "~/db";
 import {
-  WELCOME_NOTE_DESCRIPTION,
+  welcomeNoteDescription,
   WELCOME_NOTE_TRACKING_ID,
 } from "~/onboarding/welcome-note.constants";
 import { createSession } from "~/session/queries";
@@ -22,7 +24,13 @@ const PENDING_WELCOME_SESSION_KEY = "mitschnitt.pending-welcome-session";
 // what actually ends the recording. "Text bleibt" (Betreiber-Entscheid, ISA N5) covers
 // the note text, not sentences about a button and a video that do not
 // exist; everything else is word for word as it was.
-const WELCOME_NOTE = `Welcome to Mitschnitt 👋
+//
+// Als Funktion, nicht als Konstante: die Sitzung wird einmal beim Anlegen
+// geschrieben, aber die aktive Sprache in diesem Moment entscheidet, nicht
+// die Sprache beim ersten App-Start. `t` liest hier den globalen
+// i18n-Stand zur Aufrufzeit.
+function welcomeNoteBody(): string {
+  return t`Welcome to Mitschnitt 👋
 
 
 This note is a quick way to see how Mitschnitt works.
@@ -32,6 +40,7 @@ Click **Record** in the top-right corner to capture your microphone and your com
 
 
 When you stop the recording, Mitschnitt will stop listening. If transcription and intelligence are configured, it will start creating your summary automatically.`;
+}
 
 let pendingWelcomeSession: Promise<string> | null = null;
 
@@ -75,11 +84,12 @@ async function findOrCreateWelcomeSession(): Promise<string> {
   );
   if (rows[0]) return rows[0].id;
 
+  const title = t`Welcome to Mitschnitt`;
   const now = new Date().toISOString();
   const event: SessionEvent = {
     tracking_id: WELCOME_NOTE_TRACKING_ID,
     calendar_id: "",
-    title: "Welcome to Mitschnitt",
+    title,
     started_at: now,
     ended_at: "",
     is_all_day: false,
@@ -87,11 +97,11 @@ async function findOrCreateWelcomeSession(): Promise<string> {
     // Kein Link: die Demo-Adresse gehoerte dem Original (Entscheid,
     // ISA N5). Ohne Link bietet der Kopf "Record" an, kein "Join & record".
     meeting_link: "",
-    description: WELCOME_NOTE_DESCRIPTION,
+    description: welcomeNoteDescription(),
   };
 
-  return createSession("Welcome to Mitschnitt", DEFAULT_USER_ID, {
+  return createSession(title, DEFAULT_USER_ID, {
     event_json: JSON.stringify(event),
-    raw_md: JSON.stringify(md2json(WELCOME_NOTE)),
+    raw_md: JSON.stringify(md2json(welcomeNoteBody())),
   });
 }

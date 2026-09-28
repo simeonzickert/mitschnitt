@@ -12,7 +12,7 @@ use tauri_plugin_updater2::Updater2PluginExt;
 use tauri_specta::Event;
 
 use super::MenuItemHandler;
-use crate::TrayPluginExt;
+use crate::{Text, TrayPluginExt, current_menu_lang, tr, tr_fmt};
 
 const STATE_CHECK_FOR_UPDATE: u8 = 0;
 const STATE_DOWNLOADING: u8 = 1;
@@ -25,12 +25,19 @@ pub struct TrayCheckUpdate;
 
 impl TrayCheckUpdate {
     pub fn set_state(app: &AppHandle<tauri::Wry>, state: UpdateMenuState) -> Result<()> {
+        let lang = current_menu_lang();
         let (text, enabled, state_value) = match &state {
-            UpdateMenuState::CheckForUpdate => ("Check for Updates", true, STATE_CHECK_FOR_UPDATE),
-            UpdateMenuState::Downloading => ("Downloading...", false, STATE_DOWNLOADING),
-            UpdateMenuState::RestartToApply(_) => {
-                ("Restart to Apply Update", true, STATE_RESTART_TO_APPLY)
+            UpdateMenuState::CheckForUpdate => {
+                (tr(Text::CheckForUpdates, lang), true, STATE_CHECK_FOR_UPDATE)
             }
+            UpdateMenuState::Downloading => {
+                (tr(Text::Downloading, lang), false, STATE_DOWNLOADING)
+            }
+            UpdateMenuState::RestartToApply(_) => (
+                tr(Text::RestartToApplyUpdate, lang),
+                true,
+                STATE_RESTART_TO_APPLY,
+            ),
         };
 
         if let UpdateMenuState::RestartToApply(version) = state {
@@ -62,9 +69,10 @@ impl TrayCheckUpdate {
 
     async fn apply_update(app: AppHandle<tauri::Wry>, version: String) {
         if let Err(e) = app.updater2().install_and_relaunch(&version).await {
+            let lang = current_menu_lang();
             app.dialog()
-                .message(format!("Failed to install update: {}", e))
-                .title("Update Failed")
+                .message(tr_fmt(Text::FailedToInstallUpdate, lang, &[&e.to_string()]))
+                .title(tr(Text::UpdateFailed, lang))
                 .show(|_| {});
         }
     }
@@ -82,11 +90,12 @@ impl MenuItemHandler for TrayCheckUpdate {
 
     fn build(app: &AppHandle<tauri::Wry>) -> Result<MenuItemKind<tauri::Wry>> {
         let state = Self::get_state();
+        let lang = current_menu_lang();
 
         let (text, enabled) = match state {
-            STATE_DOWNLOADING => ("Downloading...", false),
-            STATE_RESTART_TO_APPLY => ("Restart to Apply Update", true),
-            _ => ("Check for Updates", true),
+            STATE_DOWNLOADING => (tr(Text::Downloading, lang), false),
+            STATE_RESTART_TO_APPLY => (tr(Text::RestartToApplyUpdate, lang), true),
+            _ => (tr(Text::CheckForUpdates, lang), true),
         };
         let item = MenuItem::with_id(app, Self::ID, text, enabled, None::<&str>)?;
         Ok(MenuItemKind::MenuItem(item))
@@ -121,14 +130,15 @@ impl MenuItemHandler for TrayCheckUpdate {
                         return;
                     }
 
+                    let lang = current_menu_lang();
                     let app_for_dialog = app.clone();
                     let version_for_download = version.clone();
                     app.dialog()
-                        .message(format!("Update v{} is available!", version))
-                        .title("Update Available")
+                        .message(tr_fmt(Text::UpdateAvailableBody, lang, &[&version]))
+                        .title(tr(Text::UpdateAvailableTitle, lang))
                         .buttons(MessageDialogButtons::OkCancelCustom(
-                            "Download".to_string(),
-                            "Later".to_string(),
+                            tr(Text::Download, lang).to_string(),
+                            tr(Text::Later, lang).to_string(),
                         ))
                         .show(move |accepted| {
                             if accepted {
@@ -140,9 +150,14 @@ impl MenuItemHandler for TrayCheckUpdate {
                                             &app,
                                             UpdateMenuState::CheckForUpdate,
                                         );
+                                        let lang = current_menu_lang();
                                         app.dialog()
-                                            .message(format!("Failed to download update: {}", e))
-                                            .title("Update Failed")
+                                            .message(tr_fmt(
+                                                Text::FailedToDownloadUpdate,
+                                                lang,
+                                                &[&e.to_string()],
+                                            ))
+                                            .title(tr(Text::UpdateFailed, lang))
                                             .show(|_| {});
                                     }
                                 });
@@ -150,15 +165,17 @@ impl MenuItemHandler for TrayCheckUpdate {
                         });
                 }
                 Ok(None) => {
+                    let lang = current_menu_lang();
                     app.dialog()
-                        .message("There are currently no updates available.")
-                        .title("Check for Updates")
+                        .message(tr(Text::NoUpdatesAvailable, lang))
+                        .title(tr(Text::CheckForUpdates, lang))
                         .show(|_| {});
                 }
                 Err(e) => {
+                    let lang = current_menu_lang();
                     app.dialog()
-                        .message(format!("Failed to check for updates: {}", e))
-                        .title("Update Check Failed")
+                        .message(tr_fmt(Text::FailedToCheckForUpdates, lang, &[&e.to_string()]))
+                        .title(tr(Text::UpdateCheckFailed, lang))
                         .show(|_| {});
                 }
             }

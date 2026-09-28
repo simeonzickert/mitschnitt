@@ -105,6 +105,7 @@ fn make_specta_builder<R: tauri::Runtime>() -> tauri_specta::Builder<R> {
             listener2::commands::is_supported_languages_batch::<tauri::Wry>,
             listener2::commands::suggest_providers_for_languages_batch::<tauri::Wry>,
             listener2::commands::list_documented_language_codes_batch::<tauri::Wry>,
+            listener2::commands::cloud_channel_split_available::<tauri::Wry>,
             voiceprint::extract_voiceprint_candidates::<tauri::Wry>,
             voiceprint::promote_voiceprint_candidates::<tauri::Wry>,
             voiceprint::cleanup_expired_voiceprint_candidates::<tauri::Wry>,

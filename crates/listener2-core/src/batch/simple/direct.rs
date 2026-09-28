@@ -15,6 +15,7 @@ use super::super::upload::{audio_duration, segment_plan, split_batch_upload};
 use super::super::{
     BatchParams, BatchRunMode, BatchRunOutput, format_user_friendly_error, session_span,
 };
+use super::channel_split::run_channel_split_batch;
 
 pub(super) const DIRECT_BATCH_TIMEOUT_FLOOR: Duration = Duration::from_secs(15 * 60);
 pub(super) const DIRECT_BATCH_TIMEOUT_CEILING: Duration = Duration::from_secs(6 * 60 * 60);
@@ -27,15 +28,15 @@ const DIRECT_BATCH_AUDIO_DURATION_MULTIPLIER: u32 = 2;
 // `AnarlogAdapter` keine `BatchSttAdapter`-Implementierung mehr hat, liesse
 // sich `Anarlog` gar nicht in die Adapter-Liste zurueckstellen.
 macro_rules! dispatch_batch {
-    ($ak:expr, $params:expr, $lp:expr, $limit:expr,
+    ($ak:expr, $provider:ident => $run:ident $args:tt,
      { $($var:ident => $adapter:ty),+ $(,)? },
      unsupported: [$($unsup:ident),* $(,)?],
      removed: [$($removed:ident),* $(,)?]
     ) => {
         match $ak {
             $(AdapterKind::$var => {
-                run_direct_batch::<$adapter>(&AdapterKind::$var.to_string(), $params, $lp, $limit)
-                    .await
+                let $provider = AdapterKind::$var.to_string();
+                $run::<$adapter> $args .await
             })+
             $(AdapterKind::$unsup => {
                 Err(crate::BatchFailure::DirectBatchUnsupported {
@@ -55,6 +56,39 @@ macro_rules! dispatch_batch {
     };
 }
 
+/// Die eine Liste der Netz-Adapter, fuer beide Einstiege unten.
+macro_rules! with_batch_adapters {
+    ($ak:expr, $provider:ident => $run:ident $args:tt) => {
+        dispatch_batch!($ak, $provider => $run $args, {
+            LocalServer => LocalServerAdapter,
+            Cartesia => CartesiaAdapter,
+            Deepgram => DeepgramAdapter,
+            Soniox => SonioxAdapter,
+            AssemblyAI => AssemblyAIAdapter,
+            Fireworks => FireworksAdapter,
+            OpenAI => OpenAIAdapter,
+            OpenRouter => OpenRouterAdapter,
+            SiliconFlow => SiliconFlowAdapter,
+            Zai => ZaiAdapter,
+            Gladia => GladiaAdapter,
+            ElevenLabs => ElevenLabsAdapter,
+            Pyannote => PyannoteAdapter,
+            Mistral => MistralAdapter,
+            AquaVoice => AquaVoiceAdapter,
+            Cohere => CohereAdapter,
+            AwsTranscribe => AwsTranscribeAdapter,
+            AzureSpeech => AzureSpeechAdapter,
+            GoogleCloud => GoogleCloudAdapter,
+            GoogleGenerativeAi => GoogleGenerativeAiAdapter,
+            Groq => GroqAdapter,
+            RevAi => RevAiAdapter,
+            Speechmatics => SpeechmaticsAdapter,
+            Together => TogetherAdapter,
+            Xai => XaiAdapter,
+        }, unsupported: [DashScope], removed: [Anarlog])
+    };
+}
+
 pub(in crate::batch) async fn run_direct_batch_for_adapter_kind(
     adapter_kind: AdapterKind,
     params: BatchParams,
@@ -62,33 +96,81 @@ pub(in crate::batch) async fn run_direct_batch_for_adapter_kind(
 ) -> crate::Result<BatchRunOutput> {
     let limit = adapter_kind.batch_upload_limit(listen_params.model.as_deref());
 
-    dispatch_batch!(adapter_kind, params, listen_params, limit, {
-        LocalServer => LocalServerAdapter,
-        Cartesia => CartesiaAdapter,
-        Deepgram => DeepgramAdapter,
-        Soniox => SonioxAdapter,
-        AssemblyAI => AssemblyAIAdapter,
-        Fireworks => FireworksAdapter,
-        OpenAI => OpenAIAdapter,
-        OpenRouter => OpenRouterAdapter,
-        SiliconFlow => SiliconFlowAdapter,
-        Zai => ZaiAdapter,
-        Gladia => GladiaAdapter,
-        ElevenLabs => ElevenLabsAdapter,
-        Pyannote => PyannoteAdapter,
-        Mistral => MistralAdapter,
-        AquaVoice => AquaVoiceAdapter,
-        Cohere => CohereAdapter,
-        AwsTranscribe => AwsTranscribeAdapter,
-        AzureSpeech => AzureSpeechAdapter,
-        GoogleCloud => GoogleCloudAdapter,
-        GoogleGenerativeAi => GoogleGenerativeAiAdapter,
-        Groq => GroqAdapter,
-        RevAi => RevAiAdapter,
-        Speechmatics => SpeechmaticsAdapter,
-        Together => TogetherAdapter,
-        Xai => XaiAdapter,
-    }, unsupported: [DashScope], removed: [Anarlog])
+    with_batch_adapters!(
+        adapter_kind,
+        provider => run_direct_batch(&provider, params, listen_params, limit)
+    )
+}
+
+/// ZICK-330: laeuft dieser Anbieter ueber den Kanal-Weg (`channel_split.rs`)?
+///
+/// POSITIVLISTE (Opus-Zweitblick 26.09.2026): nur Anbieter, die reinen Text
+/// bzw. einen Kanal OHNE Sprecher liefern. Der Kanal-Weg zerlegt in ~30-s-
+/// Pakete und verwirft die Sprechernummern des Anbieters (sie waeren je Paket
+/// neu vergeben); ein Anbieter mit eigener Sprechertrennung wuerde dadurch
+/// seine Trennung verlieren, und job-basierte Anbieter bekaemen ~240 Jobs je
+/// Stunde.
+///
+/// Geprueft am Adaptercode (26./27.09.2026):
+/// - drin: OpenAI und OpenRouter (ausser `*-diarize`-Modellen), Groq,
+///   Together, SiliconFlow, Zai (alle `openai_compatible_batch`, Sprecher nur
+///   wenn das Modell sie liefert, und die gelisteten Standardmodelle tun das
+///   nicht), Fireworks (`speaker: None`), Cohere und AquaVoice (kein Sprecher
+///   im Adapter).
+/// - AWS (Forge M4): der Adapter ruft ein OpenAI-kompatibles Gateway per
+///   Multipart auf (`aws_transcribe/mod.rs`, `openai_compatible_batch`), kein
+///   S3-Job, keine Diarisierung angefordert.
+/// - xAI (Forge M4): fordert Diarisierung NUR an, wenn eine Sprecherzahl
+///   gesetzt ist (`xai/batch.rs:52-57`). Ohne Sprecherzahl liefert es Text
+///   und gehoert auf den Kanal-Weg, mit Sprecherzahl nicht.
+/// - draussen: Mistral (schickt immer `diarize=true`), GoogleGenerativeAi
+///   (`diarization_mode: speaker`), Deepgram (liefert selbst je Kanal eine
+///   Spur), alle mit eigener Trennung (Soniox, Pyannote, Cartesia, Gladia,
+///   ElevenLabs, AssemblyAI, Speechmatics, Azure, Google Cloud, Rev),
+///   LocalServer, DashScope, Anarlog.
+///
+/// Wer einen Anbieter aufnimmt, prueft vorher, dass er keine Sprecher liefert.
+pub(in crate::batch) fn adapter_splits_channels(
+    adapter_kind: &AdapterKind,
+    listen_params: &owhisper_interface::ListenParams,
+) -> bool {
+    let diarizing_model = listen_params
+        .model
+        .as_deref()
+        .is_some_and(|model| model.to_lowercase().contains("diarize"));
+    let speakers_requested = listen_params.num_speakers.is_some()
+        || listen_params.min_speakers.is_some()
+        || listen_params.max_speakers.is_some();
+    match adapter_kind {
+        AdapterKind::OpenAI
+        | AdapterKind::OpenRouter
+        | AdapterKind::Groq
+        | AdapterKind::Together
+        | AdapterKind::SiliconFlow
+        | AdapterKind::Zai
+        | AdapterKind::Fireworks
+        | AdapterKind::Cohere
+        | AdapterKind::AquaVoice
+        | AdapterKind::AwsTranscribe => !diarizing_model,
+        AdapterKind::Xai => !diarizing_model && !speakers_requested,
+        _ => false,
+    }
+}
+
+/// Kanal-Weg fuer einen Netz-Anbieter. Nicht `Done`: passt nicht (Mono,
+/// hoechstens ein sprechender Kanal), der Aufrufer nimmt den alten Weg.
+pub(in crate::batch) async fn run_channel_split_for_adapter_kind(
+    adapter_kind: AdapterKind,
+    runtime: std::sync::Arc<dyn crate::BatchRuntime>,
+    params: &BatchParams,
+    listen_params: &owhisper_interface::ListenParams,
+) -> crate::Result<super::channel_split::ChannelSplitOutcome> {
+    let limit = adapter_kind.batch_upload_limit(listen_params.model.as_deref());
+
+    with_batch_adapters!(
+        adapter_kind,
+        provider => run_channel_split_batch(&provider, runtime, params, listen_params, limit)
+    )
 }
 
 pub(super) async fn run_direct_batch<A: BatchSttAdapter>(
@@ -248,6 +330,84 @@ pub(super) fn merge_segment_responses(
     }
 }
 
+/// Ein einzelner Aufruf, der Fehler noch in seiner rohen Form.
+pub(super) enum DirectAttemptError {
+    Provider(owhisper_client::Error),
+    TimedOut,
+}
+
+impl DirectAttemptError {
+    /// HTTP 429? Zuerst strukturiert (Statuscode am Fehler), sonst ueber die
+    /// Meldung -- manche Adapter geben den Code nur als Text weiter.
+    pub(super) fn is_rate_limited(&self) -> bool {
+        let Self::Provider(error) = self else {
+            return false;
+        };
+        if let Some(status) = provider_status(error) {
+            return status == 429;
+        }
+        format_user_friendly_error(&format!("{error:?}")) == super::super::RATE_LIMIT_MESSAGE
+    }
+
+    pub(super) fn into_batch_error(self, provider: &str, timeout: Duration) -> crate::Error {
+        match self {
+            Self::Provider(err) => {
+                let raw_error = format!("{err:?}");
+                let message = format_user_friendly_error(&raw_error);
+                tracing::error!(
+                    error = %raw_error,
+                    anarlog.error.user_message = %message,
+                    "batch transcription failed"
+                );
+                crate::BatchFailure::DirectRequestFailed {
+                    provider: provider.to_string(),
+                    message,
+                }
+                .into()
+            }
+            Self::TimedOut => {
+                tracing::error!(
+                    timeout_seconds = timeout.as_secs(),
+                    "batch transcription timed out"
+                );
+                crate::BatchFailure::DirectRequestTimedOut {
+                    provider: provider.to_string(),
+                    timeout_seconds: timeout.as_secs(),
+                }
+                .into()
+            }
+        }
+    }
+}
+
+fn provider_status(error: &owhisper_client::Error) -> Option<u16> {
+    match error {
+        owhisper_client::Error::UnexpectedStatus { status, .. } => Some(status.as_u16()),
+        owhisper_client::Error::ProviderFailure { status, .. } => status.map(|s| s.as_u16()),
+        owhisper_client::Error::Http(error) => error.status().map(|s| s.as_u16()),
+        _ => None,
+    }
+}
+
+pub(super) async fn transcribe_once<A: BatchSttAdapter>(
+    params: &BatchParams,
+    listen_params: owhisper_interface::ListenParams,
+    timeout: Duration,
+) -> Result<owhisper_interface::batch::Response, DirectAttemptError> {
+    let client = owhisper_client::BatchClient::<A>::builder()
+        .api_base(params.base_url.clone())
+        .api_key(params.api_key.clone())
+        .params(listen_params)
+        .build();
+
+    tracing::debug!("transcribing file: {}", params.file_path);
+    match tokio::time::timeout(timeout, client.transcribe_file(&params.file_path)).await {
+        Ok(Ok(response)) => Ok(response),
+        Ok(Err(err)) => Err(DirectAttemptError::Provider(err)),
+        Err(_) => Err(DirectAttemptError::TimedOut),
+    }
+}
+
 pub(super) async fn run_direct_batch_with_timeout<A: BatchSttAdapter>(
     provider: &str,
     params: BatchParams,
@@ -257,42 +417,9 @@ pub(super) async fn run_direct_batch_with_timeout<A: BatchSttAdapter>(
     let span = session_span(&params.session_id);
 
     async {
-        let client = owhisper_client::BatchClient::<A>::builder()
-            .api_base(params.base_url.clone())
-            .api_key(params.api_key.clone())
-            .params(listen_params)
-            .build();
-
-        tracing::debug!("transcribing file: {}", params.file_path);
-        let response =
-            match tokio::time::timeout(timeout, client.transcribe_file(&params.file_path)).await {
-                Ok(Ok(response)) => response,
-                Ok(Err(err)) => {
-                    let raw_error = format!("{err:?}");
-                    let message = format_user_friendly_error(&raw_error);
-                    tracing::error!(
-                        error = %raw_error,
-                        anarlog.error.user_message = %message,
-                        "batch transcription failed"
-                    );
-                    return Err(crate::BatchFailure::DirectRequestFailed {
-                        provider: provider.to_string(),
-                        message,
-                    }
-                    .into());
-                }
-                Err(_) => {
-                    tracing::error!(
-                        timeout_seconds = timeout.as_secs(),
-                        "batch transcription timed out"
-                    );
-                    return Err(crate::BatchFailure::DirectRequestTimedOut {
-                        provider: provider.to_string(),
-                        timeout_seconds: timeout.as_secs(),
-                    }
-                    .into());
-                }
-            };
+        let response = transcribe_once::<A>(&params, listen_params, timeout)
+            .await
+            .map_err(|error| error.into_batch_error(provider, timeout))?;
         tracing::info!("batch transcription completed");
 
         Ok(BatchRunOutput {

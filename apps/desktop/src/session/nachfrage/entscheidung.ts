@@ -11,6 +11,14 @@
  * dasteht. Eine Rueckfrage, die auch dann kommt, wenn Titel und Teilnehmer
  * bereits menschengeschrieben sind, wird nach dem dritten Mal weggeklickt und
  * ist damit wertlos.
+ *
+ * Zweiter Fall derselben Regel, seit 26.09.2026: einmal pro Gespraech, fuer
+ * immer. Ein zweiter Stopp DERSELBEN Sitzung -- typisch nach "Weiter
+ * aufnehmen" -- fragt nicht erneut, auch ohne Kalendertermin. Neue Stimmen,
+ * die der Weiterlauf einfaengt, sind eine Aufgabe fuer die Sprecher-Zuordnung
+ * im Metadaten-Popover, nicht fuer diese Frage: die Antwort auf "wer war
+ * dabei" stand mit der ersten Entscheidung schon da, gleich ob bestaetigt
+ * oder uebersprungen.
  */
 
 /** Der Ausschnitt der Sitzung, den die Entscheidung braucht. */
@@ -19,6 +27,13 @@ export type SitzungsStand = {
   eventId: string | null;
   /** Das denormalisierte Event aus `sessions.event_json`. */
   event: { id?: string | null } | null;
+  /**
+   * War die Frage fuer GENAU diese Sitzung schon einmal beantwortet -- egal
+   * ob durch Bestaetigen oder Ueberspringen? Aus
+   * `sessions.metadata_json.$.nachfrageBeantwortetAm`, siehe
+   * `gate.ts` `markiereNachfrageBeantwortet`.
+   */
+  bereitsBeantwortet: boolean;
 };
 
 /**
@@ -37,10 +52,12 @@ export function hatKalendertermin(stand: SitzungsStand): boolean {
 
 /**
  * Die Frage kommt nur, wo sie etwas beitraegt. Hat das Gespraech einen
- * Kalendertermin, sind Titel und Teilnehmer schon menschengeschrieben.
+ * Kalendertermin, sind Titel und Teilnehmer schon menschengeschrieben. War
+ * die Frage fuer diese Sitzung schon einmal beantwortet, steht die Antwort
+ * ebenfalls schon da -- ein zweiter Stopp fragt nicht nochmal.
  */
 export function brauchtNachfrage(stand: SitzungsStand): boolean {
-  return !hatKalendertermin(stand);
+  return !hatKalendertermin(stand) && !stand.bereitsBeantwortet;
 }
 
 /**

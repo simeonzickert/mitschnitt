@@ -19,6 +19,7 @@ specta-typescript = { workspace = true }
 [dependencies]
 anlg-host = { workspace = true }
 anlg-intercept = { workspace = true }
+anlg-menu-lang = { workspace = true }
 
 tauri = { workspace = true, features = ["tray-icon", "image-png"] }
 tauri-specta = { workspace = true, features = ["derive", "typescript"] }

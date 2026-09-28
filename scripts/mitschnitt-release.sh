@@ -22,6 +22,15 @@
 #   4. ERST JETZT das Updater-Archiv von Hand aus dem gestapelten Bundle bauen
 #      und mit dem Minisign-Schluessel signieren. Nur diese Fassung ist es wert,
 #      ausgeliefert zu werden.
+#   5. Seit 0.1.7 (ZICK-329): aus DEMSELBEN gestapelten Bundle die DMG fuer
+#      Menschen packen (mitschnitt-dmg.sh), die DMG selbst mit der Developer-ID
+#      signieren, notarisieren und das Ticket an die DMG heften. Das Bundle
+#      darin traegt sein eigenes Ticket schon aus Schritt 3; die DMG braucht
+#      ein zweites, sonst prueft Gatekeeper beim Oeffnen der DMG online nach
+#      und meldet sich ohne Netz. Das fruehere "...-notarisiert.zip" entfaellt.
+#      Die Updater-Dateien (latest.json, Mitschnitt.app.tar.gz, .sig) bleiben
+#      unveraendert: installierte Versionen fragen
+#      releases/latest/download/latest.json ab.
 #
 # Format des Updater-Archivs (gemessen im Quelltext von tauri-plugin-updater
 # 2.10.1, updater.rs "impl Update for macos"): ein gzip-komprimiertes tar mit
@@ -107,7 +116,9 @@ if [ "$(uname -m)" != "arm64" ]; then
   exit 1
 fi
 if ! security find-identity -v -p codesigning | grep -qF "$SIGN_ID"; then
-  echo "FEHLER: Signatur-Identitaet nicht im Schluesselbund: $SIGN_ID" >&2
+  # Der Klarname aus dem Zertifikat gehoert nicht in ein Log -- die Nachricht
+  # nennt nur die Variable, nicht ihren Wert (Forge-Zweitblick 27.09.2026).
+  echo "FEHLER: Signatur-Identitaet nicht im Schluesselbund, siehe MITSCHNITT_SIGN_IDENTITY." >&2
   exit 1
 fi
 if ! xcrun notarytool history --keychain-profile mitschnitt-notar >/dev/null 2>&1; then
@@ -230,6 +241,7 @@ rm -rf "$NOTAR_WORK"
 # Pflicht ist, wuerde der Aufruf sonst mit einer leeren Pflicht-Variable im
 # Kindprozess sterben, nach dem vollen Bau.
 MITSCHNITT_NOTAR_WORK="$NOTAR_WORK" \
+  MITSCHNITT_NOTAR_KEIN_ZIP=1 \
   MITSCHNITT_SIGN_IDENTITY="$SIGN_ID" \
   MITSCHNITT_RELEASE_DIR="$OUT_DIR" \
   "$REPO_ROOT/scripts/mitschnitt-notarisieren.sh" "$WORK_APP" "$OUT_DIR"
@@ -237,6 +249,35 @@ NOTARIZED_APP="$NOTAR_WORK/Mitschnitt.app"
 [ -d "$NOTARIZED_APP" ] || { echo "FEHLER: notarisiertes Bundle fehlt unter $NOTARIZED_APP" >&2; exit 1; }
 spctl -a -vv -t exec "$NOTARIZED_APP" 2>&1 | grep -q "Notarized Developer ID" \
   || { echo "FEHLER: spctl meldet kein 'Notarized Developer ID' fuer $NOTARIZED_APP." >&2; exit 1; }
+
+log "DMG fuer Menschen packen, signieren, notarisieren, Ticket anheften"
+# Gepackt wird das GESTAPELTE Bundle aus Schritt 3, nie das unsignierte aus
+# dem Bau. mitschnitt-dmg.sh prueft nach dem Packen, dass das Bundle in der
+# DMG bitgleich zum Quell-Bundle ist (Signatur + Ticket unversehrt).
+DMG_NAME="Mitschnitt-$VERSION.dmg"
+DMG_PATH="$OUT_DIR/$DMG_NAME"
+"$REPO_ROOT/scripts/mitschnitt-dmg.sh" "$NOTARIZED_APP" "$DMG_PATH" "Mitschnitt"
+for versuch in 1 2 3; do
+  if codesign --force --timestamp --sign "$SIGN_ID" "$DMG_PATH"; then
+    break
+  fi
+  [ "$versuch" -eq 3 ] && { echo "FEHLER: DMG-Signieren dreimal gescheitert (Zeitstempel-Server?)." >&2; exit 1; }
+  echo "DMG-Signieren gescheitert (Versuch $versuch), neuer Anlauf in 10 s ..." >&2
+  sleep 10
+done
+codesign --verify --verbose=2 "$DMG_PATH" || { echo "FEHLER: DMG-Signatur ungueltig." >&2; exit 1; }
+DMG_SUBMIT_LOG="$OUT_DIR/_dmg-submit.log"
+xcrun notarytool submit "$DMG_PATH" --keychain-profile mitschnitt-notar --wait 2>&1 | tee "$DMG_SUBMIT_LOG"
+if ! grep -q "status: Accepted" "$DMG_SUBMIT_LOG"; then
+  DMG_SID="$(grep -m1 -E '^\s*id:' "$DMG_SUBMIT_LOG" | awk '{print $2}')"
+  echo "FEHLER: Apple hat die DMG nicht angenommen (Protokoll: xcrun notarytool log ${DMG_SID:-<id>} --keychain-profile mitschnitt-notar)." >&2
+  exit 1
+fi
+xcrun stapler staple "$DMG_PATH"
+xcrun stapler validate "$DMG_PATH"
+spctl -a -t open --context context:primary-signature -vv "$DMG_PATH" 2>&1 | tee "$OUT_DIR/_dmg-spctl.log"
+grep -q "Notarized Developer ID" "$OUT_DIR/_dmg-spctl.log" \
+  || { echo "FEHLER: spctl meldet fuer die DMG kein 'Notarized Developer ID'." >&2; exit 1; }
 
 log "Architektur des notarisierten Bundles feststellen"
 # latest.json muss die ECHTE Architektur des gebauten Binaries tragen, nicht
@@ -321,25 +362,111 @@ if [ "$VERSION_BUMPED" = "1" ]; then
   fi
 fi
 
+log "Release-Notiz schreiben (Download-Link auf die DMG zuerst)"
+# Die GitHub-Seite zeigt alle Anhaenge gleichrangig. Die Notiz fuehrt deshalb
+# mit EINEM Download-Link auf die DMG und kennzeichnet die Updater-Dateien als
+# nicht fuer Menschen. Vorlage: docs/release-notes-template.md.
+RELEASE_NOTES="$OUT_DIR/release-notes.md"
+python3 - "$REPO_ROOT/docs/release-notes-template.md" "$RELEASE_NOTES" "$VERSION" \
+  "https://github.com/$RELEASE_REPO/releases/download/v$VERSION/$DMG_NAME" "$DMG_NAME" "$NOTES" <<'PY'
+import sys
+tpl, out, version, dmg_url, dmg_name, changelog = sys.argv[1:7]
+text = open(tpl).read()
+# Kommentarblock der Vorlage (zwischen <!-- und -->) nicht mitveroeffentlichen.
+while "<!--" in text:
+    a = text.index("<!--")
+    b = text.index("-->", a) + 3
+    text = text[:a] + text[b:]
+for key, val in {"{{VERSION}}": version, "{{DMG_URL}}": dmg_url,
+                 "{{DMG_NAME}}": dmg_name}.items():
+    text = text.replace(key, val)
+# Pruefen VOR dem Einsetzen des Changelogs: dessen Text darf selbst "{{" tragen.
+if "{{" in text.replace("{{CHANGELOG}}", ""):
+    sys.exit("FEHLER: unaufgeloester Platzhalter in der Release-Notiz")
+text = text.replace("{{CHANGELOG}}", changelog)
+open(out, "w").write(text.lstrip())
+PY
+
 log "Fertig -- Ausgabeordner: $OUT_DIR"
 ls -la "$OUT_DIR"
 echo
 echo "Updater-Archiv:  $UPDATE_ARCHIVE"
 echo "Signatur:        $SIGNATURE_FILE"
 echo "Update-Feed:     $LATEST_JSON"
-echo "Notarisiertes Zip (Weitergabe von Hand): $OUT_DIR/Mitschnitt-$VERSION-notarisiert.zip"
+echo "DMG fuer Menschen: $DMG_PATH"
+echo "Release-Notiz:     $RELEASE_NOTES"
 
 if [ "$HOCHLADEN" = "1" ]; then
-  log "Als GitHub-Release veroeffentlichen ($RELEASE_REPO, v$VERSION)"
-  gh release create "v$VERSION" \
-    "$UPDATE_ARCHIVE" \
-    "$SIGNATURE_FILE" \
-    "$LATEST_JSON" \
-    "$OUT_DIR/Mitschnitt-$VERSION-notarisiert.zip" \
-    --repo "$RELEASE_REPO" \
-    --title "v$VERSION" \
-    --notes "$NOTES" \
-    --latest
+  # Erst als Entwurf anlegen, ALLE vier Dateien hochladen, dann vollstaendig
+  # verifizieren -- und nur bei Erfolg veroeffentlichen. "gh release create"
+  # mit direktem "--latest" veroeffentlicht sofort und laedt danach einzeln
+  # hoch; scheitert z.B. der letzte Upload (die DMG), bliebe ein als "latest"
+  # markiertes Release mit Updater-Dateien, aber ohne DMG zurueck, und die
+  # Release-Notiz zeigte auf eine nicht vorhandene Datei (Forge-Zweitblick
+  # 27.09.2026). Ein Entwurf ist dagegen nicht oeffentlich sichtbar, bis wir
+  # ihn explizit veroeffentlichen. "gh release view/edit <tag>" findet einen
+  # Entwurf ueber denselben Tag-Namen zuverlaessig (gh loest einen Tag-Namen
+  # ueber eine parallele REST- UND GraphQL-Abfrage auf, letztere greift genau
+  # fuer noch unveroeffentlichte Entwuerfe -- geprueft gegen den gh-Quelltext,
+  # nicht nur vermutet).
+  log "Als Entwurf anlegen und alle vier Dateien hochladen ($RELEASE_REPO, v$VERSION)"
+  if ! gh release create "v$VERSION" \
+      "$UPDATE_ARCHIVE" \
+      "$SIGNATURE_FILE" \
+      "$LATEST_JSON" \
+      "$DMG_PATH" \
+      --repo "$RELEASE_REPO" \
+      --title "v$VERSION" \
+      --notes-file "$RELEASE_NOTES" \
+      --draft; then
+    echo "FEHLER: Entwurf v$VERSION liess sich nicht vollstaendig anlegen (Upload gescheitert?)." >&2
+    echo "        Ein teilweise hochgeladener Entwurf bleibt dabei auf GitHub stehen, nichts wurde" >&2
+    echo "        veroeffentlicht. Pruefen: gh release view \"v$VERSION\" --repo \"$RELEASE_REPO\"" >&2
+    exit 1
+  fi
+
+  log "Entwurf pruefen: genau vier Dateien mit der erwarteten Groesse"
+  if ! ASSETS_TSV="$(gh release view "v$VERSION" --repo "$RELEASE_REPO" \
+      --json assets --jq '.assets[] | "\(.name)\t\(.size)"')"; then
+    echo "FEHLER: Entwurf v$VERSION liess sich nicht auslesen (gh release view)." >&2
+    echo "        Der Entwurf bleibt auf GitHub stehen, nichts wurde veroeffentlicht." >&2
+    exit 1
+  fi
+  ANZAHL_ASSETS="$(printf '%s\n' "$ASSETS_TSV" | grep -c . || true)"
+  ASSET_PRUEFUNG_OK=1
+  if [ "$ANZAHL_ASSETS" != "4" ]; then
+    echo "FEHLER: Entwurf traegt $ANZAHL_ASSETS Assets, erwartet werden genau 4." >&2
+    ASSET_PRUEFUNG_OK=0
+  fi
+  declare -A GEFUNDENE_GROESSEN=()
+  while IFS=$'\t' read -r ASSET_NAME ASSET_GROESSE; do
+    [ -n "$ASSET_NAME" ] && GEFUNDENE_GROESSEN["$ASSET_NAME"]="$ASSET_GROESSE"
+  done <<< "$ASSETS_TSV"
+  declare -A ERWARTETE_GROESSEN=(
+    ["$(basename "$UPDATE_ARCHIVE")"]="$(stat -f%z "$UPDATE_ARCHIVE")"
+    ["$(basename "$SIGNATURE_FILE")"]="$(stat -f%z "$SIGNATURE_FILE")"
+    ["$(basename "$LATEST_JSON")"]="$(stat -f%z "$LATEST_JSON")"
+    ["$DMG_NAME"]="$(stat -f%z "$DMG_PATH")"
+  )
+  for ASSET_NAME in "${!ERWARTETE_GROESSEN[@]}"; do
+    ERWARTET="${ERWARTETE_GROESSEN[$ASSET_NAME]}"
+    GEFUNDEN="${GEFUNDENE_GROESSEN[$ASSET_NAME]:-}"
+    if [ "$GEFUNDEN" != "$ERWARTET" ]; then
+      echo "FEHLER: Asset '$ASSET_NAME' fehlt im Entwurf oder hat falsche Groesse (erwartet $ERWARTET Byte, gefunden ${GEFUNDEN:-fehlt})." >&2
+      ASSET_PRUEFUNG_OK=0
+    fi
+  done
+
+  if [ "$ASSET_PRUEFUNG_OK" != "1" ]; then
+    echo "FEHLER: Entwurf v$VERSION bleibt ein Draft auf GitHub -- NICHT veroeffentlicht." >&2
+    echo "        Fehlende/falsche Datei nachschieben: gh release upload \"v$VERSION\" <Datei> --repo \"$RELEASE_REPO\" --clobber" >&2
+    echo "        Danach diesen Lauf erneut mit --hochladen versuchen, oder von Hand veroeffentlichen:" >&2
+    echo "        gh release edit \"v$VERSION\" --repo \"$RELEASE_REPO\" --draft=false --latest" >&2
+    exit 1
+  fi
+
+  log "Vollstaendig -- veroeffentlichen und als 'latest' markieren"
+  gh release edit "v$VERSION" --repo "$RELEASE_REPO" --draft=false --latest
 else
   echo
   echo "Nicht hochgeladen (--hochladen fehlt). Alles bleibt lokal unter $OUT_DIR."

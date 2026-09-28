@@ -7,7 +7,7 @@ import {
 
 describe("meeting import providers", () => {
   it("keeps every researched provider in the catalog", () => {
-    expect(MEETING_IMPORT_PROVIDERS).toHaveLength(32);
+    expect(MEETING_IMPORT_PROVIDERS).toHaveLength(33);
     expect(
       new Set(MEETING_IMPORT_PROVIDERS.map((provider) => provider.id)).size,
     ).toBe(MEETING_IMPORT_PROVIDERS.length);
@@ -56,7 +56,7 @@ describe("meeting import providers", () => {
     ]);
 
     expect(providers.map((provider) => provider.id)).toEqual([
-      "anarlog",
+      "import-folder",
       "granola",
       "plaud",
       "pocket",
@@ -64,7 +64,7 @@ describe("meeting import providers", () => {
       "google-meet",
     ]);
     expect(providers.map((provider) => provider.installedAppId)).toEqual([
-      "anarlog",
+      "import-folder",
       "com.granola.app",
       "ai.plaud.desktop.plaud",
       "com.openvisionengineering.pocket-desktop-app",
@@ -80,7 +80,7 @@ describe("meeting import providers", () => {
     ]);
 
     expect(providers.map((provider) => provider.id)).toEqual([
-      "anarlog",
+      "import-folder",
       "plaud",
       "pocket",
       "google-meet",
@@ -92,7 +92,7 @@ describe("meeting import providers", () => {
       detectMeetingImportProviders([
         { id: "com.electron.pocket-casts", name: "Pocket Casts" },
       ]).map((provider) => provider.id),
-    ).toEqual(["anarlog", "google-meet"]);
+    ).toEqual(["import-folder", "google-meet"]);
   });
 
   it("does not accept bundle identifier prefixes", () => {
@@ -100,7 +100,7 @@ describe("meeting import providers", () => {
       detectMeetingImportProviders([
         { id: "com.granola.app.helper", name: "Something Else" },
       ]).map((provider) => provider.id),
-    ).toEqual(["anarlog", "google-meet"]);
+    ).toEqual(["import-folder", "google-meet"]);
   });
 
   it("does not infer extension-only products from a browser", () => {
@@ -108,6 +108,33 @@ describe("meeting import providers", () => {
       detectMeetingImportProviders([
         { id: "com.google.Chrome", name: "Google Chrome" },
       ]).map((provider) => provider.id),
-    ).toEqual(["anarlog", "google-meet"]);
+    ).toEqual(["import-folder", "google-meet"]);
+  });
+
+  it("never auto-detects the anarlog folder source via installed apps", () => {
+    // Kein bundleId/nativeName kann diesen Eintrag mehr treffen -- die Zeile
+    // erscheint nur ueber die Selbstsuche in detection.ts, nie hierueber.
+    expect(
+      detectMeetingImportProviders([
+        { id: "com.hyprnote.stable", name: "Hyprnote" },
+        { id: "com.hyprnote.dev", name: "Hyprnote" },
+        { id: "hyprnote", name: "anarlog" },
+      ]).map((provider) => provider.id),
+    ).toEqual(["import-folder", "google-meet"]);
+  });
+
+  it("always offers the brandless folder import, with no bundle/native match needed", () => {
+    // S2 (Orchestrator 26.09.2026): der kopierte Ordner auf dem USB-Stick
+    // braucht einen markenlosen Weg hinein, unabhaengig davon, ob die
+    // Selbstsuche in detection.ts etwas findet.
+    const provider = detectMeetingImportProviders([]).find(
+      (p) => p.id === "import-folder",
+    );
+    expect(provider).toMatchObject({
+      access: "Folder",
+      folderImport: true,
+      dialogSubject: "your other app",
+      installedAppId: "import-folder",
+    });
   });
 });

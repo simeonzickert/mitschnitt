@@ -17,6 +17,7 @@ Default permissions for the plugin
 - `allow-cleanup-legacy-files`
 - `allow-run-legacy-import`
 - `allow-find-import-sources`
+- `allow-has-known-import-source`
 - `allow-scan-import-source`
 - `allow-run-source-import`
 - `allow-get-import-run`
@@ -368,6 +369,32 @@ Enables the get_startup_status command without any pre-configured scope.
 <td>
 
 Denies the get_startup_status command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`db:allow-has-known-import-source`
+
+</td>
+<td>
+
+Enables the has_known_import_source command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`db:deny-has-known-import-source`
+
+</td>
+<td>
+
+Denies the has_known_import_source command without any pre-configured scope.
 
 </td>
 </tr>

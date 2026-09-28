@@ -16,6 +16,7 @@ import {
   formatTranscriptExportSegments,
 } from "~/session/components/note-input/transcript/export-data";
 import { canRegenerateTranscript } from "~/session/components/note-input/transcript/regenerate-condition";
+import { useConfirmedRegenerate } from "~/session/components/note-input/transcript/regenerate-confirmation";
 import { useSessionTranscriptRenderData } from "~/session/components/note-input/transcript/render-request-hooks";
 import { useHasTranscript } from "~/session/components/shared";
 import {
@@ -23,8 +24,8 @@ import {
   useNativeContextMenu,
 } from "~/shared/hooks/useNativeContextMenu";
 import { useListener } from "~/stt/contexts";
-import { canResumeSession } from "~/stt/resume-condition";
 import { resumeBlockedMessage } from "~/stt/resume-blocked-message";
+import { canResumeSession } from "~/stt/resume-condition";
 import { useResumeAfterStop } from "~/stt/useStartListening";
 import {
   isMainWebviewWindow,
@@ -196,6 +197,7 @@ function HeaderViewTranscriptActive({
     muted: boolean;
   };
 }) {
+  const { t } = useLingui();
   const regenerate = useRegenerateTranscript(sessionId);
   const resumeAfterStop = useResumeAfterStop(sessionId);
   const { request: transcriptExportRequest } =
@@ -207,6 +209,9 @@ function HeaderViewTranscriptActive({
     isDeletingRecording,
   } = AudioPlayer.useAudioPlayer();
   const hasTranscript = useHasTranscript(sessionId);
+  // Forge M6: auch das Rechtsklick-Menue fragt, bevor es Korrekturen ersetzt.
+  const confirmedRegenerate = useConfirmedRegenerate(regenerate, hasTranscript);
+  const requestRegenerate = confirmedRegenerate.request;
   const sessionMode = useListener((state) => state.getSessionMode(sessionId));
   const canCopyTranscript = Boolean(transcriptExportRequest);
   const handleCopyTranscript = useCallback(async () => {
@@ -224,12 +229,12 @@ function HeaderViewTranscriptActive({
       }
 
       await copyTextToClipboard(transcriptText, {
-        success: "Transcript copied to clipboard",
-        error: "Failed to copy transcript",
+        success: t`Transcript copied to clipboard`,
+        error: t`Failed to copy transcript`,
       });
     } catch (error) {
       console.error("Failed to copy transcript", error);
-      sonnerToast.error("Failed to copy transcript");
+      sonnerToast.error(t`Failed to copy transcript`);
     }
   }, [transcriptExportRequest]);
   const handleDeleteRecording = useCallback(() => {
@@ -252,7 +257,7 @@ function HeaderViewTranscriptActive({
     const items: MenuItemDef[] = [
       {
         id: `copy-transcript-${sessionId}`,
-        text: "Copy",
+        text: t`Copy`,
         action: () => {
           void handleCopyTranscript();
         },
@@ -275,7 +280,7 @@ function HeaderViewTranscriptActive({
     ) {
       items.push({
         id: `resume-listening-${sessionId}`,
-        text: "Resume listening",
+        text: t`Resume listening`,
         action: () => {
           void handleResumeListening();
         },
@@ -287,17 +292,15 @@ function HeaderViewTranscriptActive({
     ) {
       items.push({
         id: `regenerate-transcript-${sessionId}`,
-        text: "Re-transcribe",
-        action: () => {
-          void regenerate();
-        },
+        text: t`Re-transcribe`,
+        action: requestRegenerate,
       });
     }
 
     if (audioExists) {
       items.push({
         id: `delete-recording-${sessionId}`,
-        text: "Delete recording",
+        text: t`Delete recording`,
         action: handleDeleteRecording,
         disabled: isDeletingRecording,
       });
@@ -313,19 +316,22 @@ function HeaderViewTranscriptActive({
     handleResumeListening,
     hasTranscript,
     isDeletingRecording,
-    regenerate,
+    requestRegenerate,
     sessionMode,
     sessionId,
   ]);
   const showContextMenu = useNativeContextMenu(contextMenu);
 
   return (
-    <HeaderViewTranscriptButton
-      isActive={isActive}
-      isTranscribing={isTranscribing}
-      onClick={onClick}
-      onContextMenu={showContextMenu}
-      live={live}
-    />
+    <>
+      <HeaderViewTranscriptButton
+        isActive={isActive}
+        isTranscribing={isTranscribing}
+        onClick={onClick}
+        onContextMenu={showContextMenu}
+        live={live}
+      />
+      {confirmedRegenerate.dialog}
+    </>
   );
 }

@@ -102,7 +102,7 @@ describe("NotificationSettingsView", () => {
 
     render(<NotificationSettingsView />);
 
-    expect(screen.getByText("Event notifications")).toBeTruthy();
+    expect(screen.queryByText("Event notifications")).toBeNull();
     expect(screen.queryByText("Microphone detection")).toBeNull();
     expect(screen.queryByText("Respect Do-Not-Disturb mode")).toBeNull();
   });

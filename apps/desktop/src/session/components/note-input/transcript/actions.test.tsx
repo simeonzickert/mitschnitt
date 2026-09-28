@@ -65,4 +65,36 @@ describe("useRegenerateTranscript", () => {
       description: "Authentication failed",
     });
   });
+
+  it("starts only once while a re-transcription is still starting or running (Forge M6)", async () => {
+    let finish: () => void = () => {};
+    mocks.runBatch.mockReturnValue(
+      new Promise<void>((resolve) => {
+        finish = resolve;
+      }),
+    );
+    const { result } = renderHook(() => useRegenerateTranscript("session-2"));
+
+    let first: Promise<void> = Promise.resolve();
+    let second: Promise<void> = Promise.resolve();
+    await act(async () => {
+      first = result.current();
+      second = result.current();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(mocks.audioPath).toHaveBeenCalledTimes(1);
+    expect(mocks.runBatch).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      finish();
+      await first;
+      await second;
+    });
+    mocks.runBatch.mockResolvedValue(undefined);
+    await act(async () => {
+      await result.current();
+    });
+    expect(mocks.audioPath).toHaveBeenCalledTimes(2);
+  });
 });

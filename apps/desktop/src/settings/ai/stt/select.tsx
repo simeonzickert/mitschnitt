@@ -12,6 +12,7 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
+import { platform } from "@tauri-apps/plugin-os";
 import { useRef, useState } from "react";
 
 import {
@@ -55,8 +56,10 @@ import {
   formatDownloadProgress,
   formatModelSize,
   isDeprecatedSttModel,
+  OPENROUTER_RECOMMENDED_MODEL,
   type ProviderId,
   PROVIDERS,
+  sttModelHasNoWordTimings,
   sttModelQueries,
 } from "./shared";
 
@@ -64,8 +67,7 @@ import { useNotifications } from "~/contexts/notifications";
 import { providerRowId, ProviderIconSlot } from "~/settings/ai/shared";
 import { getProviderSelectionBlockers } from "~/settings/ai/shared/eligibility";
 import { PersistAiSelection } from "~/settings/ai/shared/persist-selection";
-import { groupProviders } from "~/settings/ai/shared/provider-groups";
-import { ProviderListToggle } from "~/settings/ai/shared/provider-list-toggle";
+import { splitLocalTopMore } from "~/settings/ai/shared/provider-groups";
 import {
   getConfiguredProviderIds,
   getConfiguredProviders,
@@ -95,21 +97,39 @@ import {
   getPreferredProviderModel,
 } from "~/stt/model-selection";
 
-// Zuerst die eingebauten, lokal laufenden Modelle (die brauchen keinen
-// Schluessel und keine Kreditkarte), danach die gebraeuchlichen
-// Cloud-Anbieter, zuletzt der eigene Endpunkt. Der lange Rest steckt hinter
-// "Weitere"; es wird kein Anbieter entfernt.
-export const STT_PRIMARY_PROVIDER_IDS = [
+// Die eingebauten, lokal laufenden Modelle (brauchen keinen Schluessel und
+// keine Kreditkarte) erscheinen als EINE Gruppe "Local" oberhalb der
+// Cloud-Anbieter -- fuer mehr Uebersicht in der langen Liste (28.09.2026).
+//
+// Apple Speech steht bewusst an letzter Stelle (28.09.2026): es
+// funktioniert, aber schwaecher als Parakeet/Soniqo -- siehe die Warnung an
+// seinem Eintrag (LowQualityBadge unten).
+export const STT_LOCAL_PROVIDER_IDS = [
   "soniqo",
-  "apple_speech",
   "whispercpp",
   "local_file",
+  "apple_speech",
+] as const;
+
+// Feste Reihenfolge der vier gaengigsten Cloud-Anbieter plus dem eigenen
+// Endpunkt, direkt unter der "Local"-Gruppe. Der lange Rest steckt unter
+// "More"; es wird kein Anbieter entfernt.
+export const STT_TOP_PROVIDER_IDS = [
+  "openrouter",
   "openai",
-  "groq",
   "google_generative_ai",
-  "elevenlabs",
+  "groq",
   "custom",
 ] as const;
+
+export function getSelectableSttProviders(currentPlatform: string) {
+  return PROVIDERS.filter(
+    (provider) =>
+      !provider.disabled &&
+      (currentPlatform !== "windows" ||
+        !("builtIn" in provider && provider.builtIn)),
+  );
+}
 
 // stt/shared.tsx exportiert seinen lokalen Provider-Typ nicht (bleibt
 // unangetastet), daher hier aus dem tatsaechlichen Element-Typ von PROVIDERS
@@ -136,6 +156,7 @@ function ProviderOption({
         <div className="flex items-center gap-2">
           <ProviderIconSlot>{provider.icon}</ProviderIconSlot>
           <span>{provider.displayName}</span>
+          {provider.id === "apple_speech" && <LowQualityBadge />}
         </div>
       </div>
     </SelectItem>
@@ -155,7 +176,6 @@ export function SelectProviderAndModel() {
   const [pendingProvider, setPendingProvider] = useState<ProviderId | null>(
     null,
   );
-  const [showAllProviders, setShowAllProviders] = useState(false);
 
   const selectedSttModel = isConfiguredSttModel(
     current_stt_provider,
@@ -172,7 +192,7 @@ export function SelectProviderAndModel() {
     selectedSttModel,
     selectedProviderConfigured,
   );
-  const selectableProviders = PROVIDERS.filter(({ disabled }) => !disabled);
+  const selectableProviders = getSelectableSttProviders(platform());
   const configuredProviderIds = getConfiguredProviderIds(
     selectableProviders,
     configuredProviders,
@@ -273,10 +293,12 @@ export function SelectProviderAndModel() {
     });
   };
 
-  const groups = groupProviders(providerOptions, STT_PRIMARY_PROVIDER_IDS, {
-    selectedId: visibleProvider,
-    configuredIds: configuredProviderIds,
-  });
+  const { local, top, more } = splitLocalTopMore(
+    providerOptions,
+    STT_LOCAL_PROVIDER_IDS,
+    STT_TOP_PROVIDER_IDS,
+    { selectedId: visibleProvider, configuredIds: configuredProviderIds },
+  );
 
   return (
     <div className="flex flex-col gap-4">
@@ -306,17 +328,28 @@ export function SelectProviderAndModel() {
               <SelectValue placeholder={t`Select a provider`} />
             </SelectTrigger>
             <SelectContent>
-              {groups.primary.map((provider) => (
-                <ProviderOption
-                  key={provider.id}
-                  provider={provider}
-                  configured={
-                    configuredProviders[provider.id]?.configured ?? false
-                  }
-                />
-              ))}
-              {!showAllProviders
-                ? groups.pinned.map((provider) => (
+              {local.length > 0 ? (
+                <>
+                  <SelectGroup>
+                    <SelectLabel>{t`Local`}</SelectLabel>
+                    {local.map((provider) => (
+                      <ProviderOption
+                        key={provider.id}
+                        provider={provider}
+                        configured={
+                          configuredProviders[provider.id]?.configured ??
+                          false
+                        }
+                      />
+                    ))}
+                  </SelectGroup>
+                  <SelectSeparator />
+                </>
+              ) : null}
+              {top.length > 0 ? (
+                <SelectGroup>
+                  <SelectLabel>{t`Cloud`}</SelectLabel>
+                  {top.map((provider) => (
                     <ProviderOption
                       key={provider.id}
                       provider={provider}
@@ -324,30 +357,25 @@ export function SelectProviderAndModel() {
                         configuredProviders[provider.id]?.configured ?? false
                       }
                     />
-                  ))
-                : null}
-              {groups.others.length > 0 ? (
+                  ))}
+                </SelectGroup>
+              ) : null}
+              {more.length > 0 ? (
                 <>
                   <SelectSeparator />
-                  <ProviderListToggle
-                    expanded={showAllProviders}
-                    onToggle={() => setShowAllProviders((value) => !value)}
-                  />
-                  {showAllProviders ? (
-                    <SelectGroup>
-                      <SelectLabel>{t`More providers`}</SelectLabel>
-                      {groups.others.map((provider) => (
-                        <ProviderOption
-                          key={provider.id}
-                          provider={provider}
-                          configured={
-                            configuredProviders[provider.id]?.configured ??
-                            false
-                          }
-                        />
-                      ))}
-                    </SelectGroup>
-                  ) : null}
+                  <SelectGroup>
+                    <SelectLabel>{t`More`}</SelectLabel>
+                    {more.map((provider) => (
+                      <ProviderOption
+                        key={provider.id}
+                        provider={provider}
+                        configured={
+                          configuredProviders[provider.id]?.configured ??
+                          false
+                        }
+                      />
+                    ))}
+                  </SelectGroup>
                 </>
               ) : null}
             </SelectContent>
@@ -651,11 +679,12 @@ type ModelEntry = {
   category?: ModelCategory;
   sizeBytes?: number | null;
   mode?: "realtime" | "batch";
+  hasNoWordTimings?: boolean;
 };
 
 function getModelCategoryLabel(category?: ModelCategory) {
   if (category === "latest") {
-    return "Recommended";
+    return <Trans>Recommended</Trans>;
   }
 
   if (category === "hardware") {
@@ -665,7 +694,7 @@ function getModelCategoryLabel(category?: ModelCategory) {
   return null;
 }
 
-function useConfiguredMapping(): {
+export function useConfiguredMapping(): {
   providers: Record<
     ProviderId,
     {
@@ -699,7 +728,8 @@ function useConfiguredMapping(): {
     staleTime: Infinity,
   });
 
-  const localModels = supportedModels.data ?? [];
+  const localModels =
+    platform() === "windows" ? [] : (supportedModels.data ?? []);
   const soniqoModels = localModels.filter((m) => m.model_type === "soniqo");
   // Listed only when the backend reports macOS 26 with Apple Speech available.
   const appleSpeechModels = localModels.filter(
@@ -806,6 +836,12 @@ function useConfiguredMapping(): {
               isDownloaded: true,
               mode: mode === "live" ? "realtime" : mode,
               isDeprecated: isDeprecatedSttModel(provider.id, model),
+              category:
+                provider.id === "openrouter" &&
+                model === OPENROUTER_RECOMMENDED_MODEL
+                  ? ("latest" as const)
+                  : null,
+              hasNoWordTimings: sttModelHasNoWordTimings(provider.id, model),
             };
           }),
         },
@@ -889,6 +925,7 @@ function ModelSelectItem({
       <div className="flex shrink-0 items-center gap-2 text-[11px]">
         <LocalModelBackendBadge model={model.id} />
         {isDeprecated && <DeprecatedBadge />}
+        {model.hasNoWordTimings && <NoWordTimingsBadge />}
         {model.mode !== "realtime" && <ModelModeBadge mode={model.mode} />}
         {!model.isDownloaded && sizeLabel && (
           <span className="text-muted-foreground font-mono">{sizeLabel}</span>
@@ -986,6 +1023,7 @@ function ModelSelectedValue({ model }: { model: ModelEntry }) {
         labelClassName={cn([isDeprecated && "text-muted-foreground"])}
       />
       {isDeprecated && <DeprecatedBadge />}
+      {model.hasNoWordTimings && <NoWordTimingsBadge />}
       <ModelModeBadge mode={model.mode} />
     </div>
   );
@@ -1033,6 +1071,54 @@ function ModelModeBadge({ mode }: { mode?: ModelEntry["mode"] }) {
             Runs after the recording finishes, not during the meeting.
           </Trans>
         )}
+      </TooltipContent>
+    </Tooltip>
+  );
+}
+
+function NoWordTimingsBadge() {
+  return (
+    <Tooltip delayDuration={100}>
+      <TooltipTrigger asChild>
+        <span
+          className={cn([
+            "flex shrink-0 cursor-help items-center rounded-md px-1 py-0.5",
+            "bg-amber-50 text-amber-700",
+          ])}
+        >
+          <Warning className="size-3.5" weight="fill" />
+        </span>
+      </TooltipTrigger>
+      <TooltipContent side="top" className="max-w-64 text-xs">
+        <Trans>
+          No word timings – speakers may be interleaved in conversations.
+        </Trans>
+      </TooltipContent>
+    </Tooltip>
+  );
+}
+
+// Apple Speech laeuft zwar an, transkribiert echte Gespraeche aber deutlich
+// schwaecher als Parakeet (Soniqo) -- direkt am Eintrag sichtbar, nicht nur
+// in der Doku (28.09.2026).
+function LowQualityBadge() {
+  const { t } = useLingui();
+
+  return (
+    <Tooltip delayDuration={100}>
+      <TooltipTrigger asChild>
+        <span
+          className={cn([
+            "flex shrink-0 cursor-help items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-medium",
+            "bg-amber-50 text-amber-700",
+          ])}
+        >
+          <Warning className="size-3 shrink-0" weight="fill" />
+          {t`Works, but low quality`}
+        </span>
+      </TooltipTrigger>
+      <TooltipContent side="top" className="max-w-64 text-xs">
+        <Trans>For real conversations, prefer Parakeet (Soniqo).</Trans>
       </TooltipContent>
     </Tooltip>
   );

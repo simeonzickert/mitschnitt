@@ -99,8 +99,8 @@ fn metal_developer_dir() -> Option<PathBuf> {
 mod swift_build_check;
 
 fn target_is_macos_apple_silicon() -> bool {
-    env::var("CARGO_CFG_TARGET_OS").is_ok_and(|value| value == "macos")
-        && env::var("CARGO_CFG_TARGET_ARCH").is_ok_and(|value| value == "aarch64")
+    std::env::var("CARGO_CFG_TARGET_OS").is_ok_and(|value| value == "macos")
+        && std::env::var("CARGO_CFG_TARGET_ARCH").is_ok_and(|value| value == "aarch64")
 }
 
 /// In welcher Bauart die SWIFT-Seite uebersetzt wird -- unabhaengig davon, in
@@ -644,7 +644,9 @@ fn swift_library_path(swift_build_dir: &Path, configuration: &str) -> PathBuf {
 /// laut werden, nicht stillschweigend durchwinken.
 #[cfg(target_os = "macos")]
 fn file_modified_at(path: &Path) -> Option<std::time::SystemTime> {
-    fs::metadata(path).and_then(|metadata| metadata.modified()).ok()
+    fs::metadata(path)
+        .and_then(|metadata| metadata.modified())
+        .ok()
 }
 
 fn main() {

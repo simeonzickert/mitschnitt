@@ -6,7 +6,6 @@ export type OnboardingStep =
   | "permissions"
   | "calendar"
   | "imports"
-  | "folder-location"
   | "final";
 
 const STEPS_MACOS: OnboardingStep[] = [
@@ -16,9 +15,15 @@ const STEPS_MACOS: OnboardingStep[] = [
   "final",
 ];
 const STEPS_OTHER: OnboardingStep[] = ["calendar", "imports", "final"];
+const STEPS_WINDOWS: OnboardingStep[] = ["imports", "final"];
 
 function getOnboardingSteps(): OnboardingStep[] {
-  return platform() === "macos" ? STEPS_MACOS : STEPS_OTHER;
+  const currentPlatform = platform();
+  return currentPlatform === "macos"
+    ? STEPS_MACOS
+    : currentPlatform === "windows"
+      ? STEPS_WINDOWS
+      : STEPS_OTHER;
 }
 
 export function getInitialStep(): OnboardingStep {

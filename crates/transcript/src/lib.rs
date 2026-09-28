@@ -4,6 +4,7 @@ mod postprocessor;
 mod processor;
 mod render;
 mod segments;
+mod separation;
 mod types;
 mod words;
 
@@ -20,6 +21,11 @@ pub use render::{
 };
 pub use segments::{
     MAX_BRUECKE_MS, build_segments, derselbe_sprecher, verschmelze_anzeige_nachbarn,
+};
+pub use separation::{
+    SeparationRow, UNSEPARATED_SPEAKER_LABEL, manually_assigned_word_ids,
+    neutralize_unseparated_labels, should_neutralize_speaker_labels,
+    transcript_has_speaker_separation,
 };
 pub use types::{
     ChannelProfile, FinalizedWord, IdentityAssignment, IdentityScope, PartialWord, RawWord,

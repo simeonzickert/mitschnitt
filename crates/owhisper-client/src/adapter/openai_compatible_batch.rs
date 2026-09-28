@@ -17,6 +17,42 @@ pub(crate) struct OpenAICompatibleBatchConfig<'a> {
     pub response_format: Option<&'a str>,
     pub timestamp_field: Option<&'a str>,
     pub include_language: bool,
+    /// Welche Modelle bekommen `response_format`/`timestamp_field` (also
+    /// `verbose_json` + Wortzeiten) tatsaechlich angefragt?
+    ///
+    /// `None`: uneingeschraenkt, wie vor diesem Feld -- jeder Aufruf traegt
+    /// `response_format`/`timestamp_field`, wenn die beiden gesetzt sind
+    /// (Groq, Together, AWS: dort deckt der Anbieter nur ein-zwei eigene
+    /// Whisper-Modelle ab, die das immer koennen).
+    ///
+    /// `Some(liste)`: nur Modelle aus der Liste bekommen die beiden Felder,
+    /// alle anderen laufen wie ohne `response_format` (Text ohne Wortzeiten,
+    /// der alte Weg). Fuer OpenRouter, wo ein Modellname zig verschiedene
+    /// Anbieter hinter sich haben kann und `openai/gpt-transcribe` auf
+    /// `verbose_json` mit HTTP 400 antwortet (gemessen 28.09.2026) --
+    /// unbekannt gebliebene Modelle sollen nicht laut scheitern, sondern beim
+    /// bisherigen Verhalten bleiben.
+    pub word_timestamp_models: Option<&'a [&'a str]>,
+}
+
+/// Dieselbe Formel wie unten in `transcribe()` -- ob ein Modell die
+/// Wortzeit-Felder (`response_format`/`timestamp_field`) angefragt bekommt.
+///
+/// Oeffentlich fuer `BatchSttAdapter::wants_word_timestamps` (ZICK-330
+/// Nachtrag, 28.09.2026): `listener2-core/src/batch/simple/channel_split.rs`
+/// muss VOR jedem Netz-Aufruf wissen, ob echte Wortzeiten kommen werden, um
+/// die Paketgroesse zu waehlen -- also dieselbe Quelle wie die HTTP-Anfrage
+/// selbst, keine zweite, separat gepflegte Modell-Liste an der Aufrufstelle.
+pub(crate) fn resolves_to_word_timestamps(
+    word_timestamp_models: Option<&[&str]>,
+    default_model: &str,
+    model: Option<&str>,
+) -> bool {
+    let model = match model {
+        Some(model) if !crate::providers::is_meta_model(model) => model,
+        _ => default_model,
+    };
+    word_timestamp_models.is_none_or(|models| models.contains(&model))
 }
 
 pub(crate) async fn transcribe(
@@ -31,14 +67,21 @@ pub(crate) async fn transcribe(
         Some(model) if !crate::providers::is_meta_model(model) => model,
         _ => config.default_model,
     };
+    let wants_word_timestamps = resolves_to_word_timestamps(
+        config.word_timestamp_models,
+        config.default_model,
+        params.model.as_deref(),
+    );
 
     let mut form = Form::new().text("model", model.to_string());
 
-    if let Some(response_format) = config.response_format {
-        form = form.text("response_format", response_format.to_string());
-    }
-    if let Some(field) = config.timestamp_field {
-        form = form.text(field.to_string(), "word");
+    if wants_word_timestamps {
+        if let Some(response_format) = config.response_format {
+            form = form.text("response_format", response_format.to_string());
+        }
+        if let Some(field) = config.timestamp_field {
+            form = form.text(field.to_string(), "word");
+        }
     }
     if config.include_language
         && let Some(language) = params.languages.first()

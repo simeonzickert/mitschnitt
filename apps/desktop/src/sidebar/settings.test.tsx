@@ -9,6 +9,7 @@ import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
+  platform: "macos" as "macos" | "windows",
   currentTab: { type: "settings", state: { tab: "app" } } as {
     type: "settings";
     state: { tab?: string };
@@ -30,6 +31,10 @@ const mocks = vi.hoisted(() => ({
   transitionChatMode: vi.fn(),
   updateSettingsTabState: vi.fn(),
   updateTemplatesTabState: vi.fn(),
+}));
+
+vi.mock("@tauri-apps/plugin-os", () => ({
+  platform: () => mocks.platform,
 }));
 
 const lingui = vi.hoisted(() => {
@@ -105,6 +110,7 @@ describe("SettingsNav", () => {
   afterEach(cleanup);
 
   beforeEach(() => {
+    mocks.platform = "macos";
     mocks.currentTab = { type: "settings", state: { tab: "app" } };
     mocks.tabs = [];
     mocks.openNew.mockClear();
@@ -141,6 +147,14 @@ describe("SettingsNav", () => {
     ].forEach((label) => {
       expect(screen.getByText(label)).toBeTruthy();
     });
+  });
+
+  it("hides the unavailable calendar destination on Windows", () => {
+    mocks.platform = "windows";
+    render(<SettingsNav />);
+
+    expect(screen.queryByRole("button", { name: "Calendar" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Contacts" })).toBeTruthy();
   });
 
   it.each([

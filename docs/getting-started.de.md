@@ -10,11 +10,13 @@ Du brauchst einen Mac mit Apple-Chip (M1 oder neuer) und **macOS 15 oder neuer**
 
 ## 1. Die App zum ersten Mal öffnen
 
-1. Lade `Mitschnitt-<version>-notarisiert.zip` von der
+1. Lade `Mitschnitt-<version>.dmg` von der
    [aktuellen Version](https://github.com/simeonzickert/mitschnitt/releases/latest) und
-   entpacke die Datei.
-2. Zieh **Mitschnitt** in deinen Ordner **Programme**.
-3. Doppelklick auf die App.
+   öffne sie per Doppelklick. Die übrigen Dateien dort sind für die automatische
+   Aktualisierung, die brauchst du nicht.
+2. Zieh im Fenster, das aufgeht, **Mitschnitt** auf den Ordner **Programme**.
+3. Öffne **Programme** und doppelklicke auf Mitschnitt. Danach kannst du das
+   Laufwerk „Mitschnitt“ in der Finder-Seitenleiste auswerfen.
 
 Die App ist von Apple notarisiert, macOS öffnet sie deshalb ohne Warnung. Spätere
 Versionen installiert sie selbst (siehe Abschnitt 5).

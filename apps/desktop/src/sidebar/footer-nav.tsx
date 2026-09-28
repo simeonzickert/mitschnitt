@@ -1,5 +1,6 @@
 import { useLingui } from "@lingui/react/macro";
 import { CalendarDots, Gear, type Icon, Users } from "@phosphor-icons/react";
+import { platform } from "@tauri-apps/plugin-os";
 import { useCallback } from "react";
 
 import { cn } from "@anlg/utils";
@@ -70,33 +71,35 @@ export function SidebarFooterNav() {
         "border-t px-2 pt-1.5 pb-2",
       ])}
     >
-      {items.map((item) => {
-        const active = item.isActive(currentTab);
-        const ItemIcon = item.icon;
+      {items
+        .filter((item) => item.id !== "calendar" || platform() !== "windows")
+        .map((item) => {
+          const active = item.isActive(currentTab);
+          const ItemIcon = item.icon;
 
-        return (
-          <button
-            key={item.id}
-            type="button"
-            aria-label={item.label}
-            title={item.label}
-            aria-current={active ? "page" : undefined}
-            data-active={active ? "true" : "false"}
-            data-tauri-drag-region="false"
-            onClick={() => handleOpen(item.destination)}
-            className={cn([
-              "relative flex size-7 shrink-0 items-center justify-center rounded-full",
-              "transition-colors",
-              "focus-visible:ring-ring focus-visible:ring-2 focus-visible:outline-hidden",
-              active
-                ? "bg-sidebar-accent text-foreground"
-                : "text-muted-foreground hover:bg-accent hover:text-foreground",
-            ])}
-          >
-            <ItemIcon size={16} weight={active ? "fill" : "regular"} />
-          </button>
-        );
-      })}
+          return (
+            <button
+              key={item.id}
+              type="button"
+              aria-label={item.label}
+              title={item.label}
+              aria-current={active ? "page" : undefined}
+              data-active={active ? "true" : "false"}
+              data-tauri-drag-region="false"
+              onClick={() => handleOpen(item.destination)}
+              className={cn([
+                "relative flex size-7 shrink-0 items-center justify-center rounded-full",
+                "transition-colors",
+                "focus-visible:ring-ring focus-visible:ring-2 focus-visible:outline-hidden",
+                active
+                  ? "bg-sidebar-accent text-foreground"
+                  : "text-muted-foreground hover:bg-accent hover:text-foreground",
+              ])}
+            >
+              <ItemIcon size={16} weight={active ? "fill" : "regular"} />
+            </button>
+          );
+        })}
     </nav>
   );
 }

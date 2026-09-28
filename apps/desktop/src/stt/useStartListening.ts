@@ -1,3 +1,4 @@
+import { t } from "@lingui/core/macro";
 import { useCallback } from "react";
 
 import { sonnerToast } from "@anlg/ui/components/ui/toast";
@@ -104,7 +105,7 @@ export function useStartListening(sessionId: string) {
         );
       }
       sonnerToast.error(
-        "Mitschnitt could not safely start recording. Please try again.",
+        t`Mitschnitt could not safely start recording. Please try again.`,
         { id: "capture-state-persist-failed" },
       );
       return false;
@@ -143,7 +144,7 @@ export function useStartListening(sessionId: string) {
         );
       }
       sonnerToast.error(
-        "Mitschnitt could not safely start recording. Please try again.",
+        t`Mitschnitt could not safely start recording. Please try again.`,
         { id: "capture-state-persist-failed" },
       );
       return false;
@@ -156,7 +157,7 @@ export function useStartListening(sessionId: string) {
       } catch (error) {
         console.error("[listener] failed to clean up capture state", error);
         sonnerToast.error(
-          "Mitschnitt could not safely start recording. Please try again.",
+          t`Mitschnitt could not safely start recording. Please try again.`,
           { id: "capture-state-persist-failed" },
         );
       }
@@ -164,13 +165,12 @@ export function useStartListening(sessionId: string) {
     }
 
     if (!conn) {
-      sonnerToast.warning("Live transcription is not configured", {
+      sonnerToast.warning(t`Live transcription is not configured`, {
         id: "recording-without-transcription",
         duration: Infinity,
-        description:
-          "Audio is being saved. Choose a transcription provider to ensure this recording can be transcribed.",
+        description: t`Audio is being saved. Choose a transcription provider to ensure this recording can be transcribed.`,
         action: {
-          label: "Configure",
+          label: t`Configure`,
           onClick: () => {
             openNew({
               type: "settings",
@@ -189,7 +189,7 @@ export function useStartListening(sessionId: string) {
         excludedTexts: [MEETING_DISCLOSURE_MESSAGE],
         onParticipantDeclined: () => {
           sonnerToast.warning(
-            "A participant declined recording. Mitschnitt stopped listening.",
+            t`A participant declined recording. Mitschnitt stopped listening.`,
             { id: "meeting-consent-declined", duration: Infinity },
           );
           stop();

@@ -1,3 +1,6 @@
+import type { MessageDescriptor } from "@lingui/core";
+import { msg } from "@lingui/core/macro";
+import { Trans, useLingui } from "@lingui/react/macro";
 import { MagnifyingGlass } from "@phosphor-icons/react";
 import { useCallback, useMemo } from "react";
 
@@ -61,7 +64,7 @@ function parseMeetingSearchResults(output: unknown): MeetingSearchResult[] {
     return [
       {
         id,
-        title: typeof title === "string" ? title : "Untitled",
+        title: typeof title === "string" ? title : "",
         excerpt: typeof excerpt === "string" ? excerpt : "",
         score: typeof score === "number" ? score : 0,
         created_at:
@@ -75,28 +78,35 @@ function parseMeetingSearchResults(output: unknown): MeetingSearchResult[] {
   });
 }
 
-function formatSearchInput(input: Part["input"] | undefined): {
+type I18n = { _: (descriptor: MessageDescriptor) => string };
+
+function formatSearchInput(
+  input: Part["input"] | undefined,
+  i18n: I18n,
+): {
   titleQuery: string;
   details: string[];
 } {
   if (!input) {
-    return { titleQuery: "meetings", details: [] };
+    return { titleQuery: i18n._(msg`meetings`), details: [] };
   }
 
   const details: string[] = [];
   const rawQuery = typeof input.query === "string" ? input.query.trim() : "";
-  const titleQuery = rawQuery || "meetings";
+  const titleQuery = rawQuery || i18n._(msg`meetings`);
 
   if (!rawQuery) {
-    details.push("Query: none");
+    details.push(i18n._(msg`Query: none`));
   } else {
-    details.push(`Query: ${rawQuery}`);
+    details.push(i18n._(msg`Query: ${rawQuery}`));
   }
 
   const createdAt = input.filters?.created_at;
   if (createdAt?.kind === "relative") {
     details.push(
-      `Date: recent ${createdAt.recent_days} day(s), including today`,
+      i18n._(
+        msg`Date: recent ${createdAt.recent_days ?? 0} day(s), including today`,
+      ),
     );
   } else if (createdAt?.kind === "absolute") {
     const bounds = [
@@ -118,12 +128,12 @@ function formatSearchInput(input: Part["input"] | undefined): {
     ].filter(Boolean);
 
     if (bounds.length > 0) {
-      details.push(`Date: ${bounds.join(", ")}`);
+      details.push(i18n._(msg`Date: ${bounds.join(", ")}`));
     }
   }
 
   if (typeof input.limit === "number") {
-    details.push(`Limit: ${input.limit}`);
+    details.push(i18n._(msg`Limit: ${input.limit}`));
   }
 
   return { titleQuery, details };
@@ -131,11 +141,12 @@ function formatSearchInput(input: Part["input"] | undefined): {
 
 export const ToolSearchMeetings: Renderer = ({ part }) => {
   const { running: disabled } = useToolState(part);
+  const { i18n } = useLingui();
 
   return (
     <Disclosure
       icon={<MagnifyingGlass className="h-3 w-3" />}
-      title={getTitle(part)}
+      title={getTitle(part, i18n)}
       disabled={disabled}
     >
       <RenderContent part={part} />
@@ -143,26 +154,29 @@ export const ToolSearchMeetings: Renderer = ({ part }) => {
   );
 };
 
-const getTitle = (part: Part) => {
-  const { titleQuery } = formatSearchInput(part.input);
+const getTitle = (part: Part, i18n: I18n) => {
+  const { titleQuery } = formatSearchInput(part.input, i18n);
 
   if (part.state === "input-streaming") {
-    return "Preparing search...";
+    return i18n._(msg`Preparing search...`);
   }
   if (part.state === "input-available") {
-    return `Searching for: ${titleQuery}`;
+    return i18n._(msg`Searching for: ${titleQuery}`);
   }
   if (part.state === "output-available") {
-    return `Searched for: ${titleQuery}`;
+    return i18n._(msg`Searched for: ${titleQuery}`);
   }
   if (part.state === "output-error") {
-    return part.input ? `Search failed: ${titleQuery}` : "Search failed";
+    return part.input
+      ? i18n._(msg`Search failed: ${titleQuery}`)
+      : i18n._(msg`Search failed`);
   }
-  return "Search";
+  return i18n._(msg`Search`);
 };
 
 function RenderContent({ part }: { part: Part }) {
-  const { details } = formatSearchInput(part.input);
+  const { i18n } = useLingui();
+  const { details } = formatSearchInput(part.input, i18n);
 
   if (part.state === "output-available") {
     const results = parseMeetingSearchResults(part.output);
@@ -178,7 +192,7 @@ function RenderContent({ part }: { part: Part }) {
             </div>
           )}
           <div className="text-muted-foreground flex items-center justify-center py-2 text-xs">
-            No results found
+            <Trans>No results found</Trans>
           </div>
         </div>
       );
@@ -218,7 +232,11 @@ function RenderContent({ part }: { part: Part }) {
   }
 
   if (part.state === "output-error") {
-    return <div className="text-sm text-red-500">Error: {part.errorText}</div>;
+    return (
+      <div className="text-sm text-red-500">
+        <Trans>Error: {part.errorText}</Trans>
+      </div>
+    );
   }
 
   return details.length > 0 ? (
@@ -249,14 +267,16 @@ function RenderMeeting({ result }: { result: MeetingSearchResult }) {
       onClick={handleClick}
       className="flex w-full flex-col gap-1 text-left text-xs"
     >
-      <span className="truncate font-medium">{result.title || "Untitled"}</span>
+      <span className="truncate font-medium">
+        {result.title || <Trans>Untitled</Trans>}
+      </span>
       {dateLabel && (
         <span className="text-muted-foreground text-[11px] tabular-nums">
           {dateLabel}
         </span>
       )}
       <span className="text-muted-foreground line-clamp-3 break-words">
-        {result.excerpt || "No excerpt available"}
+        {result.excerpt || <Trans>No excerpt available</Trans>}
       </span>
     </button>
   );

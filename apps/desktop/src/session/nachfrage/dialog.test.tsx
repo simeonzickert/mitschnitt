@@ -1,5 +1,6 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import type { ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const lingui = vi.hoisted(() => {
@@ -26,11 +27,43 @@ vi.mock("@lingui/react/macro", () => ({
 
 // Der Teilnehmer-Block ist der echte Block aus dem Metadaten-Popover und
 // haengt an Datenbank, Live-Queries und floating-ui. Hier wird nur geprueft,
-// dass er ueberhaupt mit der richtigen Sitzung eingesetzt ist -- sein
-// Verhalten pruefen seine eigenen Tests, an seinem eigenen Ort.
+// dass er ueberhaupt mit der richtigen Sitzung eingesetzt ist -- sein eigenes
+// Verhalten pruefen seine eigenen Tests, an seinem eigenen Ort
+// (`participants/dropdown.test.tsx`).
+//
+// Die Attrappe traegt trotzdem die zwei Merkmale, von denen der Dialog
+// abhaengt, gesteuert ueber Modul-Flags -- so laesst sich am Dialog selbst
+// pruefen, ohne die echte, schwergewichtige Eingabe nachzubauen:
+//
+// - `data-participant-suggestions-open` sitzt NICHT portaliert (echter
+//   DOM-Nachkomme dieses Blocks, wie die Eingabezeile in `input.tsx`) --
+//   dafuer, dass die Escape-Weiche des Dialogs eine offene Liste erkennt.
+// - `data-participant-suggestions` sitzt an einem echten `createPortal`
+//   nach `document.body` (wie `dropdown.tsx`s FloatingPortal) -- dafuer,
+//   dass ein Klick auf einen Vorschlag den Dialog nicht als "Klick daneben"
+//   ueberspringen laesst (D1, siehe Bericht).
+const mocks = vi.hoisted(() => ({
+  vorschlagslisteOffen: false,
+  vorschlagPortal: null as { onSelect: () => void } | null,
+}));
+
 vi.mock("~/session/components/outer-header/metadata/participants", () => ({
   ParticipantsDisplay: ({ sessionId }: { sessionId: string }) => (
-    <div data-testid="teilnehmer-block" data-session={sessionId} />
+    <div data-testid="teilnehmer-block" data-session={sessionId}>
+      {mocks.vorschlagslisteOffen && <div data-participant-suggestions-open />}
+      {mocks.vorschlagPortal &&
+        createPortal(
+          <button
+            type="button"
+            data-participant-suggestions
+            data-testid="vorschlag-attrappe"
+            onClick={mocks.vorschlagPortal.onSelect}
+          >
+            Anna Beispiel
+          </button>,
+          document.body,
+        )}
+    </div>
   ),
 }));
 
@@ -59,7 +92,14 @@ function bauen(props: Partial<Parameters<typeof NachfrageDialog>[0]> = {}) {
 const titelFeld = () => screen.getByLabelText("Title") as HTMLInputElement;
 
 describe("NachfrageDialog", () => {
-  afterEach(cleanup);
+  afterEach(() => {
+    cleanup();
+    mocks.vorschlagslisteOffen = false;
+    mocks.vorschlagPortal = null;
+    document
+      .querySelectorAll("[data-participant-suggestions-open]")
+      .forEach((knoten) => knoten.remove());
+  });
 
   // Mangel 4/5/6: die Teilnehmer sind nicht nachgebaut, sondern das Bauteil
   // aus dem Metadaten-Popover -- mit Merkzetteln, x zum Entfernen und den
@@ -85,7 +125,7 @@ describe("NachfrageDialog", () => {
   it("nennt den Knopf um, sobald jemand dabei war", () => {
     bauen({ teilnehmerNamen: ["Anna Beispiel"] });
 
-    expect(screen.getByText("Save and summarize")).toBeTruthy();
+    expect(screen.getByText("Continue")).toBeTruthy();
   });
 
   // Der Titel wird vorgeschlagen, nicht abgefragt: ein leeres Feld ist eine
@@ -117,24 +157,91 @@ describe("NachfrageDialog", () => {
     expect(onUebernehmen).toHaveBeenCalledWith({ titel: "Von Hand" });
   });
 
-  // Die Frage endet mit einer Entscheidung, nie mit nichts. Bis zum 04.09.
-  // schloss Escape sie lautlos -- unsichtbar fuer den, der raus will, und ein
-  // Versehen fuer den, der es nicht wollte. Der Schalter dafuer sitzt am
-  // Bauteil (`shared/ui/glass-dialog`); hier wird geprueft, dass der Dialog
-  // ihn auch setzt.
-  it("schliesst nicht, wenn Escape gedrueckt wird", () => {
+  // Die Frage endet mit einer Entscheidung, nie mit nichts -- aber die
+  // Entscheidung darf seit 26.09.2026 auch "ueberspringen" heissen. Bis dahin
+  // schloss Escape den Dialog lautlos gar nicht (verbindlich); jetzt ist
+  // Escape einer von vier Wegen zum Ueberspringen (Knopf, X, Escape, Klick
+  // daneben), alle auf `onVerwerfen`.
+  it("ueberspringt bei Escape, wenn keine Vorschlagsliste offen ist", () => {
     const { onVerwerfen, onUebernehmen } = bauen();
 
     fireEvent.keyDown(document.activeElement ?? document.body, {
       key: "Escape",
     });
 
-    expect(onVerwerfen).not.toHaveBeenCalled();
+    expect(onVerwerfen).toHaveBeenCalledTimes(1);
     expect(onUebernehmen).not.toHaveBeenCalled();
-    expect(screen.getByTestId("nachfrage-bestaetigen")).toBeTruthy();
   });
 
-  it("schliesst nicht, wenn daneben geklickt wird", async () => {
+  // Die Vorschlagsliste bekommt Escape zuerst: ein einzelner Escape-Druck
+  // darf nie beides auf einmal tun (Liste schliessen UND ueberspringen). Der
+  // Dialog erkennt eine offene Liste am Merkmal
+  // `data-participant-suggestions-open` an der (nicht portalierten)
+  // Eingabezeile (siehe Kommentar in `dialog.tsx`, warum das nicht ueber
+  // `stopPropagation` in der Liste selbst geht).
+  it("ueberspringt nicht, solange die eigene Vorschlagsliste offen ist", () => {
+    mocks.vorschlagslisteOffen = true;
+    const { onVerwerfen, onUebernehmen } = bauen();
+
+    fireEvent.keyDown(document.body, { key: "Escape" });
+
+    expect(onVerwerfen).not.toHaveBeenCalled();
+    expect(onUebernehmen).not.toHaveBeenCalled();
+  });
+
+  // D2 (Zweitblick 26.09.2026): die Escape-Weiche war ein GLOBALES
+  // `document.querySelector` ohne Bezug zu diesem Dialog. Eine Liste, die
+  // irgendwo GANZ ANDERS im Dokument offen ist (z. B. das
+  // Kopfzeilen-Popover einer anderen, im Hintergrund liegenden Sitzung),
+  // haette Escape hier faelschlich blockiert. Seit dem Fix ist die Abfrage
+  // auf `inhaltRef.current` gescopt und findet ein Merkmal ausserhalb
+  // dieses Dialogs nicht mehr.
+  it("laesst sich von einer FREMDEN, anderswo offenen Liste nicht blockieren (D2)", () => {
+    const fremd = document.createElement("div");
+    fremd.setAttribute("data-participant-suggestions-open", "");
+    document.body.appendChild(fremd);
+
+    const { onVerwerfen, onUebernehmen } = bauen();
+
+    fireEvent.keyDown(document.body, { key: "Escape" });
+
+    expect(onVerwerfen).toHaveBeenCalledTimes(1);
+    expect(onUebernehmen).not.toHaveBeenCalled();
+  });
+
+  // D1 (Zweitblick 26.09.2026), Rot-Beweis: ein modaler Radix-Dialog setzt
+  // `document.body.style.pointerEvents = "none"` und gibt es nur seinem
+  // eigenen Content und dem Overlay explizit wieder frei
+  // (`@radix-ui/react-dismissable-layer`, `@radix-ui/react-dialog`,
+  // installierter Quelltext). Die Vorschlagsliste haengt per FloatingPortal
+  // NEBEN diesem Dialog direkt am <body> -- ohne `pointer-events-auto` fiel
+  // ein Klick auf sie durch auf den Overlay darunter, der ihn als "Klick
+  // daneben" las: der Dialog ueberspringt, ohne dass die Auswahl je ankommt.
+  // Diese Attrappe bildet genau diese Anordnung nach (echtes `createPortal`
+  // nach `document.body`, wie `dropdown.tsx`s FloatingPortal).
+  it("waehlt einen Vorschlag aus der portalierten Liste, ohne dass der Dialog ueberspringt (D1)", async () => {
+    const onSelect = vi.fn();
+    mocks.vorschlagPortal = { onSelect };
+    const { onVerwerfen, onUebernehmen } = bauen();
+
+    // Derselbe Tick wie beim Klick-daneben-Test unten: Radix haengt seinen
+    // Zuhoerer fuer Klicks nach draussen erst per `setTimeout(0)` an.
+    await new Promise((weiter) => setTimeout(weiter, 0));
+
+    const vorschlag = screen.getByTestId("vorschlag-attrappe");
+    fireEvent.pointerDown(vorschlag, {
+      button: 0,
+      ctrlKey: false,
+      pointerType: "mouse",
+    });
+    fireEvent.click(vorschlag);
+
+    expect(onSelect).toHaveBeenCalledTimes(1);
+    expect(onVerwerfen).not.toHaveBeenCalled();
+    expect(onUebernehmen).not.toHaveBeenCalled();
+  });
+
+  it("ueberspringt bei einem Klick daneben", async () => {
     const { onVerwerfen, onUebernehmen } = bauen();
 
     // Radix haengt seinen Zuhoerer fuer Klicks nach draussen erst in einem
@@ -150,9 +257,26 @@ describe("NachfrageDialog", () => {
       pointerType: "mouse",
     });
 
-    expect(onVerwerfen).not.toHaveBeenCalled();
+    expect(onVerwerfen).toHaveBeenCalledTimes(1);
     expect(onUebernehmen).not.toHaveBeenCalled();
-    expect(screen.getByTestId("nachfrage-bestaetigen")).toBeTruthy();
+  });
+
+  it("ueberspringt ueber den Skip-Knopf, ohne zu speichern", () => {
+    const { onVerwerfen, onUebernehmen } = bauen();
+
+    fireEvent.click(screen.getByTestId("nachfrage-ueberspringen"));
+
+    expect(onVerwerfen).toHaveBeenCalledTimes(1);
+    expect(onUebernehmen).not.toHaveBeenCalled();
+  });
+
+  it("ueberspringt ueber das Schliessen-X", () => {
+    const { onVerwerfen, onUebernehmen } = bauen();
+
+    fireEvent.click(screen.getByTestId("nachfrage-schliessen"));
+
+    expect(onVerwerfen).toHaveBeenCalledTimes(1);
+    expect(onUebernehmen).not.toHaveBeenCalled();
   });
 
   it("sperrt die Bestaetigung waehrend des Speicherns", () => {
@@ -162,5 +286,44 @@ describe("NachfrageDialog", () => {
       (screen.getByTestId("nachfrage-bestaetigen") as HTMLButtonElement)
         .disabled,
     ).toBe(true);
+  });
+
+  // Waehrend des Speicherns bleibt der Dialog verbindlich (siehe Kommentar in
+  // dialog.tsx): der Confirm-Klick hat schon eine Antwort abgegeben, ein
+  // Escape oder ein Klick daneben in genau diesem Fenster duerfte die
+  // Zusammenfassung nicht VOR dem Titel-Schreiben freigeben.
+  it("sperrt Skip und das Schliessen-X waehrend des Speicherns", () => {
+    bauen({ laeuft: true });
+
+    expect(
+      (screen.getByTestId("nachfrage-ueberspringen") as HTMLButtonElement)
+        .disabled,
+    ).toBe(true);
+    expect(
+      (screen.getByTestId("nachfrage-schliessen") as HTMLButtonElement)
+        .disabled,
+    ).toBe(true);
+  });
+
+  it("sperrt Escape waehrend des Speicherns", () => {
+    const { onVerwerfen } = bauen({ laeuft: true });
+
+    fireEvent.keyDown(document.body, { key: "Escape" });
+
+    expect(onVerwerfen).not.toHaveBeenCalled();
+  });
+
+  it("sperrt einen Klick daneben waehrend des Speicherns", async () => {
+    const { onVerwerfen } = bauen({ laeuft: true });
+
+    await new Promise((weiter) => setTimeout(weiter, 0));
+    const ueberlagerung = document.querySelector("[data-dialog-overlay]");
+    fireEvent.pointerDown(ueberlagerung!, {
+      button: 0,
+      ctrlKey: false,
+      pointerType: "mouse",
+    });
+
+    expect(onVerwerfen).not.toHaveBeenCalled();
   });
 });

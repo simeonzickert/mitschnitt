@@ -163,18 +163,20 @@ export function NotificationSettingsView() {
 
   return (
     <div className="flex flex-col gap-6">
-      <form.Field name="notification_event">
-        {(field) => (
-          <SettingSwitchRow
-            title={<Trans>Event notifications</Trans>}
-            description={
-              <Trans>Prepare for events with a 5-minute reminder.</Trans>
-            }
-            checked={field.state.value}
-            onChange={field.handleChange}
-          />
-        )}
-      </form.Field>
+      {currentPlatform !== "windows" && (
+        <form.Field name="notification_event">
+          {(field) => (
+            <SettingSwitchRow
+              title={<Trans>Event notifications</Trans>}
+              description={
+                <Trans>Prepare for events with a 5-minute reminder.</Trans>
+              }
+              checked={field.state.value}
+              onChange={field.handleChange}
+            />
+          )}
+        </form.Field>
+      )}
 
       {(currentPlatform !== "macos" || configs.show_app_in_dock) && (
         <form.Field name="notification_bounce">

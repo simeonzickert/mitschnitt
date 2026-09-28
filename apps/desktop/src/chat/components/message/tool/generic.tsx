@@ -1,3 +1,4 @@
+import { useLingui } from "@lingui/react/macro";
 import { Wrench } from "@phosphor-icons/react";
 
 import { useToolState } from "./shared";
@@ -44,6 +45,7 @@ function formatOutputText(output: unknown): string | null {
 }
 
 export function ToolGeneric({ part }: { part: Record<string, unknown> }) {
+  const { t } = useLingui();
   const toolName = String(
     part.toolName ??
       (typeof part.type === "string" ? part.type.replace("tool-", "") : "tool"),
@@ -53,21 +55,18 @@ export function ToolGeneric({ part }: { part: Record<string, unknown> }) {
 
   if (done || failed) {
     const outputText = done ? formatOutputText(part.output) : null;
+    const displayName = formatToolName(toolName);
 
     return (
       <Disclosure
         icon={<Wrench className="h-3 w-3" />}
-        title={
-          failed
-            ? `${formatToolName(toolName)} failed`
-            : formatToolName(toolName)
-        }
+        title={failed ? t`${displayName} failed` : displayName}
       >
         <div className="flex flex-col gap-2">
           <InputDisplay input={part.input} />
           {failed ? (
             <p className="text-xs text-red-500">
-              {String(part.errorText ?? "Unknown error")}
+              {String(part.errorText ?? t`Unknown error`)}
             </p>
           ) : null}
           {outputText ? (
@@ -83,7 +82,7 @@ export function ToolGeneric({ part }: { part: Record<string, unknown> }) {
   return (
     <Disclosure
       icon={<Wrench className="h-3 w-3" />}
-      title={`Running ${formatToolName(toolName)}…`}
+      title={t`Running ${formatToolName(toolName)}…`}
       disabled
     >
       {null}

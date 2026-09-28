@@ -1,3 +1,5 @@
+import { t } from "@lingui/core/macro";
+
 /**
  * Kanal-tot-Waechter.
  *
@@ -122,23 +124,28 @@ export function getSilentTracks(
 
 /**
  * Plain-language message naming WHICH track is silent, or null when there is
- * nothing to say. Kept in the overlay's own (English) register -- the floating
- * bar does not go through the app's i18n layer.
+ * nothing to say.
+ *
+ * Zensus 26.09.2026: die Behauptung, die schwebende Leiste liefe ausserhalb
+ * der App-i18n-Schicht, stimmt nicht -- main.tsx rendert `<App />` (den
+ * Router, der auch die Route `/app/floating-bar` aufloest) IMMER innerhalb
+ * von `AppI18nProvider`, ungeachtet von `isMainWindow`. Der Kommentar war
+ * eine falsche Annahme, kein bewusster Entscheid.
  */
 export function describeSilentTracks(tracks: FloatingTrack[]): string | null {
   const mic = tracks.includes("mic");
   const speaker = tracks.includes("speaker");
 
   if (mic && speaker) {
-    return "No audio on either track";
+    return t`No audio on either track`;
   }
 
   if (mic) {
-    return "No microphone signal";
+    return t`No microphone signal`;
   }
 
   if (speaker) {
-    return "No sound from the other side";
+    return t`No sound from the other side`;
   }
 
   return null;

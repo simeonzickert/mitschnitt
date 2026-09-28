@@ -1,0 +1,7 @@
+[package]
+name = "menu-lang"
+version = "0.1.0"
+edition = "2024"
+description = "Sprachauswahl + Uebersetzungstabelle fuer Tray-/Dock-Menues und native Dialoge"
+
+[dependencies]

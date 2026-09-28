@@ -1,26 +1,63 @@
-import { Trans } from "@lingui/react/macro";
+import { Trans, useLingui } from "@lingui/react/macro";
 import { useState } from "react";
 
 import { Accordion } from "@anlg/ui/components/ui/accordion";
+import { Separator } from "@anlg/ui/components/ui/separator";
 
 import { useSttSettings } from "./context";
+import {
+  STT_LOCAL_PROVIDER_IDS,
+  STT_TOP_PROVIDER_IDS,
+  useConfiguredMapping,
+} from "./select";
 import { ProviderId, PROVIDERS } from "./shared";
 
 import {
   filterProviders,
   NonAnarlogProviderCard,
+  ProviderGroupLabel,
   ProviderSearch,
   StyledStreamdown,
 } from "~/settings/ai/shared";
+import { splitLocalTopMore } from "~/settings/ai/shared/provider-groups";
+import { getConfiguredProviderIds } from "~/settings/ai/shared/selection";
 import { useConfigValue } from "~/shared/config";
 
+// Der Import aus "./select" ist gewollt: dieselbe Quelle (splitLocalTopMore,
+// die Local/Top-Konstanten, der "configured"-Status) gruppiert sowohl das
+// Dropdown dort als auch diese Karten-Liste hier -- nicht zweimal sortieren
+// (28.09.2026, Befund: die Karten waren "bunt gemischt").
 export function ConfigureProviders() {
   const { accordionValue, setAccordionValue } = useSttSettings();
   const currentProvider = useConfigValue("current_stt_provider");
   const [search, setSearch] = useState("");
+  const { t } = useLingui();
+  const { providers: configuredProviders } = useConfiguredMapping();
   const providers = filterProviders(
     PROVIDERS.filter((provider) => !("builtIn" in provider)),
     search,
+  );
+  const configuredProviderIds = getConfiguredProviderIds(
+    providers,
+    configuredProviders,
+    currentProvider,
+  );
+  const { local, top, more } = splitLocalTopMore(
+    providers,
+    STT_LOCAL_PROVIDER_IDS,
+    STT_TOP_PROVIDER_IDS,
+    { selectedId: currentProvider, configuredIds: configuredProviderIds },
+  );
+
+  const renderCard = (provider: (typeof providers)[number]) => (
+    <NonAnarlogProviderCard
+      key={provider.id}
+      config={provider}
+      providerType="stt"
+      providers={PROVIDERS}
+      providerContext={<ProviderContext providerId={provider.id} />}
+      currentProvider={currentProvider}
+    />
   );
 
   return (
@@ -38,16 +75,26 @@ export function ConfigureProviders() {
         value={accordionValue}
         onValueChange={setAccordionValue}
       >
-        {providers.map((provider) => (
-          <NonAnarlogProviderCard
-            key={provider.id}
-            config={provider}
-            providerType="stt"
-            providers={PROVIDERS}
-            providerContext={<ProviderContext providerId={provider.id} />}
-            currentProvider={currentProvider}
-          />
-        ))}
+        {local.length > 0 ? (
+          <>
+            <ProviderGroupLabel>{t`Local`}</ProviderGroupLabel>
+            {local.map(renderCard)}
+            <Separator />
+          </>
+        ) : null}
+        {top.length > 0 ? (
+          <>
+            <ProviderGroupLabel>{t`Cloud`}</ProviderGroupLabel>
+            {top.map(renderCard)}
+          </>
+        ) : null}
+        {more.length > 0 ? (
+          <>
+            {top.length > 0 || local.length > 0 ? <Separator /> : null}
+            <ProviderGroupLabel>{t`More`}</ProviderGroupLabel>
+            {more.map(renderCard)}
+          </>
+        ) : null}
       </Accordion>
       {providers.length === 0 ? (
         <p className="text-muted-foreground py-8 text-center text-sm">

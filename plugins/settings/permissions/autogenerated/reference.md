@@ -6,9 +6,7 @@ Default permissions for the plugin
 
 - `allow-global-base`
 - `allow-vault-base`
-- `allow-copy-vault`
 - `allow-move-vault`
-- `allow-set-vault-base`
 - `allow-is-empty-or-missing-dir`
 - `allow-obsidian-vaults`
 - `allow-path`
@@ -23,32 +21,6 @@ Default permissions for the plugin
 <th>Description</th>
 </tr>
 
-
-<tr>
-<td>
-
-`settings:allow-copy-vault`
-
-</td>
-<td>
-
-Enables the copy_vault command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`settings:deny-copy-vault`
-
-</td>
-<td>
-
-Denies the copy_vault command without any pre-configured scope.
-
-</td>
-</tr>
 
 <tr>
 <td>
@@ -228,32 +200,6 @@ Enables the save command without any pre-configured scope.
 <td>
 
 Denies the save command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`settings:allow-set-vault-base`
-
-</td>
-<td>
-
-Enables the set_vault_base command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`settings:deny-set-vault-base`
-
-</td>
-<td>
-
-Denies the set_vault_base command without any pre-configured scope.
 
 </td>
 </tr>

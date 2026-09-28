@@ -1,3 +1,4 @@
+import { t } from "@lingui/core/macro";
 import { tool } from "ai";
 import { z } from "zod";
 
@@ -69,8 +70,7 @@ export const buildEditSummaryTool = (
       if (!sessionId) {
         return {
           status: "error",
-          message:
-            "No active session selected. Provide sessionId explicitly when calling edit_summary.",
+          message: t`No active session selected. Provide sessionId explicitly when calling edit_summary.`,
         };
       }
 
@@ -81,7 +81,7 @@ export const buildEditSummaryTool = (
       if (noteIds.length === 0) {
         return {
           status: "error",
-          message: "No summaries found for this session",
+          message: t`No summaries found for this session`,
         };
       }
 
@@ -94,7 +94,7 @@ export const buildEditSummaryTool = (
       if (requestedEnhancedNoteId && !noteIdSet.has(requestedEnhancedNoteId)) {
         return {
           status: "error",
-          message: "That summary does not belong to the target session.",
+          message: t`That summary does not belong to the target session.`,
           candidates,
         };
       }
@@ -115,8 +115,7 @@ export const buildEditSummaryTool = (
       if (!enhancedNoteId) {
         return {
           status: "error",
-          message:
-            "Multiple summaries exist for this session. Specify enhancedNoteId explicitly.",
+          message: t`Multiple summaries exist for this session. Specify enhancedNoteId explicitly.`,
           candidates,
         };
       }
@@ -136,7 +135,7 @@ export const buildEditSummaryTool = (
       } catch {
         return {
           status: "error",
-          message: "Failed to save the proposed summary edit.",
+          message: t`Failed to save the proposed summary edit.`,
         };
       }
 
@@ -163,7 +162,7 @@ export const buildEditSummaryTool = (
       } catch {
         return {
           status: "error",
-          message: "Failed to apply the summary edit.",
+          message: t`Failed to apply the summary edit.`,
         };
       }
 

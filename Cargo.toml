@@ -85,6 +85,7 @@ anlg-local-llm-core = { path = "crates/local-llm-core", package = "local-llm-cor
 anlg-local-model = { path = "crates/local-model", package = "local-model" }
 anlg-local-stt-core = { path = "crates/local-stt-core", package = "local-stt-core" }
 anlg-meeting-import = { path = "crates/meeting-import", package = "meeting-import" }
+anlg-menu-lang = { path = "crates/menu-lang", package = "menu-lang" }
 anlg-mirror = { path = "crates/mirror", package = "mirror" }
 anlg-model-downloader = { path = "crates/model-downloader", package = "model-downloader" }
 anlg-model-manager = { path = "crates/model-manager", package = "model-manager" }

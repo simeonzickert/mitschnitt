@@ -35,6 +35,20 @@ pub async fn find_import_sources(
     Ok(gefunden)
 }
 
+/// Billige Existenzfrage fuer die Sichtbarkeit einer UI-Zeile: nur ob
+/// mindestens ein bekannter Ordner echte Daten traegt (`traegt_daten` prueft
+/// eine Datei-Existenz, kein Datenbank-Oeffnen), ohne die fremde Datenbank zu
+/// oeffnen oder Audio-Dateien zu zaehlen -- beides tut erst
+/// `find_import_sources`, wenn der Mensch den Import-Dialog wirklich oeffnet.
+///
+/// S3 (Orchestrator 26.09.2026): die Oberflaeche rief bislang bei jedem
+/// Fenster-Oeffnen die teure `find_import_sources` nur fuer diese Ja/Nein-
+/// Frage auf. Synchron und ohne Datenbank-Pool, weil `bekannte_quellordner`
+/// keinen braucht.
+pub fn has_known_import_source(target_vault: &Path) -> bool {
+    !scan::bekannte_quellordner(target_vault).is_empty()
+}
+
 use db_source::{IMPORT_TABLES, REMAPPED_COLUMNS, SourceDatabase, shared_columns};
 use identity::resolve_local_identity;
 

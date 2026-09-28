@@ -231,6 +231,19 @@ pub trait BatchSttAdapter: Clone + Default + Send + Sync + 'static {
         params: &'a ListenParams,
         file_path: P,
     ) -> BatchFuture<'a>;
+
+    /// Bekaeme dieses Modell bei diesem Anbieter ECHTE Wortzeiten (statt vom
+    /// Aufrufer geschaetzter)? Default `false` -- die sichere Annahme fuer den
+    /// Kanal-Weg in `listener2-core` (`batch/simple/channel_split.rs`): ohne
+    /// belegte Zusage bleibt das Paketfenster beim alten, lokalen Fenster.
+    ///
+    /// Nur ein Adapter mit einer GEMESSENEN Zusage ueberschreibt das mit
+    /// `true` -- und zwar ueber dieselbe Quelle, die auch die HTTP-Anfrage
+    /// entscheidet (siehe `openai_compatible_batch::resolves_to_word_timestamps`),
+    /// nie eine zweite, separat gepflegte Modell-Liste.
+    fn wants_word_timestamps(&self, _model: Option<&str>) -> bool {
+        false
+    }
 }
 
 pub enum CallbackResult {

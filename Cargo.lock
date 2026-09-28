@@ -3626,7 +3626,7 @@ dependencies = [
 
 [[package]]
 name = "desktop"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "anlg-settings-transfer",
  "audio-actual",
@@ -8721,6 +8721,7 @@ dependencies = [
  "axum",
  "bytes",
  "denoise",
+ "fixtures",
  "futures-util",
  "host",
  "hound",
@@ -8735,6 +8736,7 @@ dependencies = [
  "serde_json",
  "specta",
  "strum 0.28.0",
+ "sysinfo",
  "tauri-specta",
  "tempfile",
  "thiserror 2.0.18",
@@ -9110,6 +9112,10 @@ checksum = "488016bfae457b036d996092f6cb448677611ce4449e970ceaf42695203f218a"
 dependencies = [
  "autocfg",
 ]
+
+[[package]]
+name = "menu-lang"
+version = "0.1.0"
 
 [[package]]
 name = "micromap"
@@ -15113,6 +15119,7 @@ dependencies = [
  "host",
  "intercept",
  "libloading 0.8.9",
+ "menu-lang",
  "open",
  "serde",
  "serde_json",

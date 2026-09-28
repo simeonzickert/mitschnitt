@@ -30,23 +30,27 @@ export function MeetingSettingsView({
 
   return (
     <div className="flex flex-col gap-4">
-      <SettingSwitchRow
-        title={<Trans>Start when meeting begins</Trans>}
-        description={
-          <Trans>Start listening when a scheduled meeting begins.</Trans>
-        }
-        checked={autoStartScheduledMeetings.value}
-        onChange={autoStartScheduledMeetings.onChange}
-      />
-      <SettingSwitchRow
-        title={<Trans>Join scheduled meetings</Trans>}
-        description={
-          <Trans>Open the meeting link when listening starts.</Trans>
-        }
-        checked={autoJoinScheduledMeetings.value}
-        onChange={autoJoinScheduledMeetings.onChange}
-        disabled={!autoStartScheduledMeetings.value}
-      />
+      {currentPlatform !== "windows" && (
+        <>
+          <SettingSwitchRow
+            title={<Trans>Start when meeting begins</Trans>}
+            description={
+              <Trans>Start listening when a scheduled meeting begins.</Trans>
+            }
+            checked={autoStartScheduledMeetings.value}
+            onChange={autoStartScheduledMeetings.onChange}
+          />
+          <SettingSwitchRow
+            title={<Trans>Join scheduled meetings</Trans>}
+            description={
+              <Trans>Open the meeting link when listening starts.</Trans>
+            }
+            checked={autoJoinScheduledMeetings.value}
+            onChange={autoJoinScheduledMeetings.onChange}
+            disabled={!autoStartScheduledMeetings.value}
+          />
+        </>
+      )}
       {supportsMicDetection && (
         <SettingSwitchRow
           title={<Trans>Stop when meeting ends</Trans>}

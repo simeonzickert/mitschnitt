@@ -4,7 +4,7 @@ use tauri::{
 };
 
 use super::MenuItemHandler;
-use crate::TrayPluginExt;
+use crate::{Text, TrayPluginExt, current_menu_lang, tr};
 
 pub struct TrayShowEvents;
 
@@ -15,7 +15,7 @@ impl MenuItemHandler for TrayShowEvents {
         let item = CheckMenuItem::with_id(
             app,
             Self::ID,
-            "Show events in menu bar",
+            tr(Text::ShowEventsInMenuBar, current_menu_lang()),
             true,
             app.tray().shows_events(),
             None::<&str>,

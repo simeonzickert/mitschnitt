@@ -1,3 +1,4 @@
+import { t } from "@lingui/core/macro";
 import { useCallback } from "react";
 
 import { sonnerToast } from "@anlg/ui/components/ui/toast";
@@ -158,7 +159,7 @@ export function useChatActions({
             }
           } catch (error) {
             console.error("Failed to persist outgoing chat message", error);
-            sonnerToast.error("Could not save this chat message.");
+            sonnerToast.error(t`Could not save this chat message.`);
             if (fallbackTitle) {
               markFailedChatGroupCreate(currentGroupId);
               onGroupCreateFailed?.(currentGroupId);

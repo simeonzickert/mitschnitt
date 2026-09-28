@@ -271,12 +271,12 @@ export function TemplatePickerPopover({
   >(() => {
     const autoSection = {
       key: "auto",
-      title: "Auto",
+      title: t`Auto`,
       showHeader: false,
       items: [
         {
           key: "auto",
-          title: "Auto",
+          title: t`Auto`,
           icon: {
             type: "icon",
             value: "sparkles",
@@ -296,10 +296,10 @@ export function TemplatePickerPopover({
         autoSection,
         {
           key: "templates",
-          title: "Templates",
+          title: t`Templates`,
           showHeader: false,
           items: templateItems,
-          emptyMessage: "No templates yet",
+          emptyMessage: t`No templates yet`,
         },
       ];
     }
@@ -308,7 +308,7 @@ export function TemplatePickerPopover({
       autoSection,
       {
         key: "create",
-        title: "Create new template",
+        title: t`Create new template`,
         icon: <Plus className="h-3.5 w-3.5 text-blue-500" />,
         uppercase: false,
         items: [
@@ -324,7 +324,7 @@ export function TemplatePickerPopover({
         ? [
             {
               key: "templates",
-              title: "Templates",
+              title: t`Templates`,
               showHeader: false,
               items: templateItems,
             },

@@ -11,7 +11,7 @@ use sqlx::SqlitePool;
 
 pub use source_import::{
     ImportRunReport, ImportRunStatus, ImportSourceKind, ImportSourceScan, find_import_sources,
-    get_import_run, run_source_import, scan_import_source,
+    get_import_run, has_known_import_source, run_source_import, scan_import_source,
 };
 
 /// Der eigene Datenordner -- Ziel fuer kopierte Tondateien und Bezugspunkt der

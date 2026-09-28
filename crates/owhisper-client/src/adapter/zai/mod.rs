@@ -55,6 +55,7 @@ impl BatchSttAdapter for ZaiAdapter {
                     response_format: None,
                     timestamp_field: None,
                     include_language: false,
+                    word_timestamp_models: None,
                 },
             )
             .await

@@ -2,6 +2,8 @@ import { create } from "zustand";
 
 import { brauchtNachfrage } from "./entscheidung";
 
+import { executeTransaction, liveQueryClient } from "~/db";
+import { enqueueDatabaseWrite } from "~/db/write-queue";
 import { loadSessionContentSnapshot } from "~/session/content-queries";
 
 /**
@@ -75,22 +77,81 @@ export function nachfrageErledigt(sessionId: string): void {
   });
 }
 
+/**
+ * Setzt den Merker "einmal beantwortet, fuer immer" fuer GENAU diese
+ * Sitzung -- siehe die Doktrin in `entscheidung.ts`. Wird von `host.tsx` bei
+ * jedem Ausgang aus dem Dialog aufgerufen: Bestaetigen genauso wie
+ * Ueberspringen (Skip-Knopf, Schliessen-X, Escape, Klick daneben fuehren
+ * alle auf denselben `onVerwerfen`-Pfad, siehe `dialog.tsx`).
+ *
+ * Braucht keine Migration: `sessions.metadata_json` existiert bereits
+ * (`crates/db-app/migrations/20260710223922_canonical_data_model.sql`), der
+ * Merker ist ein einzelnes Feld darin.
+ *
+ * Schluckt eigene Fehler, wie `nachfrageSpeichern` in `speichern.ts` es
+ * schon fuer Titel und Teilnehmer tut: ein Schreibfehler hier darf die
+ * Zusammenfassung nicht aufhalten. Im schlimmsten Fall fragt ein spaeterer
+ * Stopp derselben Sitzung einmal zu viel -- ein ertraeglicher Ausgang,
+ * keine haengende Zusammenfassung.
+ */
+export async function markiereNachfrageBeantwortet(
+  sessionId: string,
+): Promise<void> {
+  try {
+    const jetzt = new Date().toISOString();
+    await enqueueDatabaseWrite(`session:${sessionId}`, () =>
+      executeTransaction([
+        {
+          sql: `
+            UPDATE sessions
+            SET
+              metadata_json = json_set(
+                CASE WHEN json_valid(metadata_json) THEN metadata_json ELSE '{}' END,
+                '$.nachfrageBeantwortetAm',
+                ?
+              ),
+              updated_at = ?
+            WHERE id = ? AND deleted_at IS NULL
+          `,
+          params: [jetzt, jetzt, sessionId],
+        },
+      ]),
+    );
+  } catch (error) {
+    console.error("[nachfrage] Merker nicht gespeichert", error);
+  }
+}
+
 type Abhaengigkeiten = {
   standLaden: (sessionId: string) => Promise<{
     eventId: string | null;
     event: { id?: string | null } | null;
+    bereitsBeantwortet: boolean;
   } | null>;
 };
 
 const echt: Abhaengigkeiten = {
   standLaden: async (sessionId) => {
-    const schnappschuss = await loadSessionContentSnapshot(sessionId);
+    const [schnappschuss, metadatenZeilen] = await Promise.all([
+      loadSessionContentSnapshot(sessionId),
+      liveQueryClient.execute<{ beantwortet_am: string | null }>(
+        `
+          SELECT
+            NULLIF(json_extract(metadata_json, '$.nachfrageBeantwortetAm'), '') AS beantwortet_am
+          FROM sessions
+          WHERE id = ? AND deleted_at IS NULL
+          LIMIT 1
+        `,
+        [sessionId],
+      ),
+    ]);
     if (!schnappschuss) {
       return null;
     }
     return {
       eventId: schnappschuss.eventId,
       event: (schnappschuss.event ?? null) as { id?: string | null } | null,
+      bereitsBeantwortet: Boolean(metadatenZeilen[0]?.beantwortet_am),
     };
   },
 };

@@ -72,39 +72,13 @@ impl<'a, R: tauri::Runtime, M: tauri::Manager<R>> Settings<'a, R, M> {
 }
 
 impl<'a, R: tauri::Runtime, M: tauri::Manager<R>> Settings<'a, R, M> {
-    /// Copies the vault items (`fs.rs`'s `VAULT_DIRECTORIES`/`VAULT_FILES`)
-    /// to `new_path` without touching the old location or persisting
-    /// anything -- used only by onboarding's storage-location picker
-    /// (`folder-location.tsx`), where the caller still calls `set_vault_base`
-    /// itself afterward.
-    ///
-    /// Like the general-settings `move_vault` this plugin used to expose
-    /// (moved to `apps/desktop/src-tauri/src/vault_move.rs` -- see that
-    /// module's doc comment), this does NOT copy `app.db`: at onboarding time
-    /// the database already exists and is already open at the default
-    /// location (`main()` opens it before any UI runs), so picking a custom
-    /// vault folder here leaves the database behind exactly the way the
-    /// general-settings button used to. Onboarding was out of scope for the
-    /// audit that found and fixed that in the general-settings path; it is a
-    /// known, disclosed gap here, not an oversight.
-    pub async fn copy_vault(&self, new_path: Utf8PathBuf) -> Result<(), crate::Error> {
-        let old_vault_base = self.vault_base()?;
-
-        if new_path == old_vault_base {
-            return Ok(());
-        }
-
-        anlg_storage::vault::validate_vault_base_change(
-            old_vault_base.as_ref(),
-            new_path.as_ref(),
-        )?;
-        anlg_storage::vault::ensure_vault_dir(new_path.as_ref())?;
-        anlg_storage::vault::fs::copy_vault_items(old_vault_base.as_ref(), new_path.as_ref())
-            .await?;
-
-        Ok(())
-    }
-
+    /// Persists `new_path` as the vault base. Rust-internal only: the one
+    /// caller is `apps/desktop/src-tauri/src/vault_move.rs`, which copies the
+    /// vault items AND `app.db` first. Not exposed to the webview any more
+    /// (ZICK-310, 26.09.2026): since `db::desktop_db_dir` follows this path,
+    /// setting it without moving the database would make the next start open
+    /// a fresh, empty `app.db` at the new location. The former onboarding
+    /// picker (`copy_vault` + this command) was removed for that reason.
     pub async fn set_vault_base(&self, new_path: Utf8PathBuf) -> Result<(), crate::Error> {
         let settings_base = self.settings_base_path()?;
         anlg_storage::vault::persist_vault_path(&settings_base, &settings_base, new_path.as_ref())?;

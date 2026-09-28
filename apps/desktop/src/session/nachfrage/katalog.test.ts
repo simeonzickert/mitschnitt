@@ -49,7 +49,11 @@ const texte = [
   "Names here are recognized in the transcript.",
   "Title",
   "Only me, continue",
-  "Save and summarize",
+  // War "Save and summarize", per Kommentar in dialog.tsx umbenannt zu
+  // "Continue" (passender, weil der Teilnehmer-Schritt jetzt dazwischen
+  // liegt). Der alte String steht nirgends mehr im Code -- extract --clean
+  // entfernte ihn korrekt aus dem Katalog, dieser Test hinkte hinterher.
+  "Continue",
   "Add participants",
   // Die drei Titelvorschlaege: interpoliert, deshalb mit Platzhaltern.
   "Conversation on {0}",

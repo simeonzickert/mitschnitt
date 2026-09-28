@@ -144,6 +144,19 @@ pub(crate) async fn find_import_sources(
         .map_err(|error| error.to_string())
 }
 
+/// Billige Ja/Nein-Frage fuer die Sichtbarkeit einer UI-Zeile (S3, Orchestrator
+/// 26.09.2026) -- ohne Datenbank-Pool und ohne die teure Pruefung, die
+/// `find_import_sources` je Fund macht. Fuer den Import-Dialog selbst bleibt
+/// `find_import_sources` die richtige, vollstaendige Antwort.
+#[tauri::command]
+#[specta::specta]
+pub(crate) fn has_known_import_source(
+    state: tauri::State<'_, ManagedState>,
+) -> Result<bool, String> {
+    let target_vault = state.vault_base().map_err(|error| error.to_string())?;
+    Ok(crate::import::has_known_import_source(target_vault))
+}
+
 #[tauri::command]
 #[specta::specta]
 pub(crate) async fn scan_import_source(

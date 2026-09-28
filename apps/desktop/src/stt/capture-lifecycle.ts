@@ -1,3 +1,4 @@
+import { t } from "@lingui/core/macro";
 import { useCallback, useRef } from "react";
 
 import { commands as fsSyncCommands } from "@anlg/plugin-fs-sync";
@@ -428,12 +429,12 @@ export function useCaptureLifecycle(sessionId: string) {
             });
             if (transcriptWriteError || !details.liveTranscriptionActive) {
               notifyFailure(
-                "Mitschnitt could not finish saving the transcript. The recording was kept so you can try again.",
+                t`Mitschnitt could not finish saving the transcript. The recording was kept so you can try again.`,
                 "post-capture-transcript-incomplete",
               );
             } else {
               notifyFailure(
-                "Post-meeting transcription failed. The recording was kept so you can try again.",
+                t`Post-meeting transcription failed. The recording was kept so you can try again.`,
                 "post-capture-batch-failed",
               );
             }
@@ -462,8 +463,8 @@ export function useCaptureLifecycle(sessionId: string) {
         ) {
           notifyFailure(
             details.audioPath
-              ? "Mitschnitt could not finish saving the transcript. The recording was kept so you can try again."
-              : "Mitschnitt could not save part of the live transcript.",
+              ? t`Mitschnitt could not finish saving the transcript. The recording was kept so you can try again.`
+              : t`Mitschnitt could not save part of the live transcript.`,
             details.audioPath
               ? "post-capture-transcript-incomplete"
               : "live-transcript-persist-failed",
@@ -541,7 +542,7 @@ export function useCaptureLifecycle(sessionId: string) {
                 error,
               );
               notifyFailure(
-                "The transcript was saved, but Mitschnitt could not start the summary. Try generating it again.",
+                t`The transcript was saved, but Mitschnitt could not start the summary. Try generating it again.`,
                 "post-capture-summary-failed",
               );
               await requestRecovery();
@@ -567,7 +568,7 @@ export function useCaptureLifecycle(sessionId: string) {
             summaryScheduled = false;
             console.error("[listener] failed to schedule summary", error);
             notifyFailure(
-              "The transcript was saved, but Mitschnitt could not start the summary. Try generating it again.",
+              t`The transcript was saved, but Mitschnitt could not start the summary. Try generating it again.`,
               "post-capture-summary-failed",
             );
           }

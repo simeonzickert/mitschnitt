@@ -1,3 +1,4 @@
+import { t } from "@lingui/core/macro";
 import type { StoreApi } from "zustand";
 
 import type {
@@ -349,10 +350,10 @@ function notifyDiarizationSkipped(response: { metadata?: unknown }) {
   // zu werden -- sonst behauptet der Hinweis irgendwann etwas anderes als der
   // Deckel im Backend.
   const limitMinutes = Math.round(limitSeconds / 60);
-  sonnerToast.warning("Speaker separation was skipped", {
+  sonnerToast.warning(t`Speaker separation was skipped`, {
     id: "diarization-skipped-for-length",
     duration: Infinity,
-    description: `The recording is longer than ${limitMinutes} minutes. The transcript is complete, but has no speaker assignment.`,
+    description: t`The recording is longer than ${limitMinutes} minutes. The transcript is complete, but has no speaker assignment.`,
   });
 }
 
@@ -381,11 +382,10 @@ function notifyDiarizationFailed(response: { metadata?: unknown }) {
     return;
   }
 
-  sonnerToast.warning("Speaker separation failed", {
+  sonnerToast.warning(t`Speaker separation failed`, {
     id: "diarization-failed",
     duration: Infinity,
-    description:
-      "The transcript is complete, but speakers could not be told apart. You can run the transcription again.",
+    description: t`The transcript is complete, but speakers could not be told apart. You can run the transcription again.`,
   });
 }
 

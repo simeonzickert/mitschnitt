@@ -1,3 +1,4 @@
+import { t as coreT } from "@lingui/core/macro";
 import { useLingui } from "@lingui/react/macro";
 import { useCallback, useMemo, useSyncExternalStore } from "react";
 
@@ -183,8 +184,8 @@ export function getNextUpcomingMeetingStatusRefreshMs(
 export function getUpcomingMeetingStatus(
   buckets: TimelineBucket[],
   currentTimeMs: number,
-  formatLabel: (diffMs: number) => string = formatUpcomingMeetingLabelEnglish,
-  activeLabel = "Now",
+  formatLabel: (diffMs: number) => string = formatUpcomingMeetingLabel,
+  activeLabel = coreT`Now`,
 ): SidebarUpcomingMeetingStatus | null {
   let active: { itemKey: string; title: string; endsAtMs: number } | null =
     null;
@@ -212,7 +213,7 @@ export function getUpcomingMeetingStatus(
         if (!active || endsAtMs < active.endsAtMs) {
           active = {
             itemKey: `${item.type}-${item.id}`,
-            title: item.data.title || "Untitled",
+            title: item.data.title || coreT`Untitled`,
             endsAtMs,
           };
         }
@@ -228,7 +229,7 @@ export function getUpcomingMeetingStatus(
       if (!nearest || diffMs < nearest.diffMs) {
         nearest = {
           itemKey: `${item.type}-${item.id}`,
-          title: item.data.title || "Untitled",
+          title: item.data.title || coreT`Untitled`,
           diffMs,
         };
       }
@@ -294,14 +295,18 @@ export function useUpcomingMeetingLabelFormatter(): (diffMs: number) => string {
   );
 }
 
-function formatUpcomingMeetingLabelEnglish(diffMs: number): string {
+// Nur der Rueckfall fuer Aufrufer, die keinen eigenen Formatierer angeben
+// (heute niemand im Produktivpfad -- der echte Aufruf oben gibt immer den
+// hook-gebundenen `t` mit). `coreT` liest trotzdem den echten globalen
+// i18n-Stand, kein englischer Sonderfall mehr.
+function formatUpcomingMeetingLabel(diffMs: number): string {
   const totalSeconds = Math.max(1, Math.floor(diffMs / 1000));
   const minutes = Math.floor(totalSeconds / 60);
   const seconds = totalSeconds % 60;
 
   if (minutes < 1) {
-    return `In ${totalSeconds}s`;
+    return coreT`In ${totalSeconds}s`;
   }
 
-  return `In ${minutes}m ${seconds}s`;
+  return coreT`In ${minutes}m ${seconds}s`;
 }

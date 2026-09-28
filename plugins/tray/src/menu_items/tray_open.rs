@@ -3,6 +3,8 @@ use tauri::{
     menu::{MenuItem, MenuItemKind},
 };
 
+use crate::{Text, current_menu_lang, tr_fmt};
+
 use super::MenuItemHandler;
 
 pub struct TrayOpen;
@@ -14,7 +16,11 @@ impl MenuItemHandler for TrayOpen {
         let item = MenuItem::with_id(
             app,
             Self::ID,
-            format!("Open {}", app.package_info().name.as_str()),
+            tr_fmt(
+                Text::OpenApp,
+                current_menu_lang(),
+                &[app.package_info().name.as_str()],
+            ),
             true,
             None::<&str>,
         )?;

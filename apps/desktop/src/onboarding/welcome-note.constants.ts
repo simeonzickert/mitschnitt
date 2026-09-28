@@ -1,3 +1,5 @@
+import { t } from "@lingui/core/macro";
+
 // Bis zum 02.09.2026 stand hier WELCOME_NOTE_DEMO_URL, eine Adresse auf der
 // Webseite des Originals (anarlog.so/onboarding-demo) samt Sonderweg, der
 // dieser fremden Seite einen Localhost-Rueckruf mitgab. Entscheid
@@ -10,6 +12,10 @@
 // still eine zweite an. Aendern nur mit einem Lesepfad fuer beide Werte.
 export const WELCOME_NOTE_TRACKING_ID = "anarlog-onboarding-demo-v1";
 
-// The description a welcome session carries today. Also what a legacy row's
-// old description is read as (session/utils.ts, getSessionEvent).
-export const WELCOME_NOTE_DESCRIPTION = "An introduction to Mitschnitt.";
+// Als Funktion, nicht als Konstante: `getSessionEvent` (session/utils.ts)
+// setzt diesen Text bei JEDEM Lesen einer Willkommens-Sitzung neu ein, damit
+// eine alte Sitzung in der gerade aktiven Sprache erscheint, nicht in der
+// Sprache, in der sie einmal angelegt wurde.
+export function welcomeNoteDescription(): string {
+  return t`An introduction to Mitschnitt.`;
+}

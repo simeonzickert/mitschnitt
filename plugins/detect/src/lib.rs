@@ -91,10 +91,13 @@ pub fn init<R: tauri::Runtime>() -> tauri::plugin::TauriPlugin<R> {
             app.manage(DetectorState::default());
             app.manage(ProcessorState::default());
 
-            let app_handle = app.app_handle().clone();
-            tauri::async_runtime::spawn(async move {
-                handler::setup(&app_handle).unwrap();
-            });
+            #[cfg(not(target_os = "windows"))]
+            {
+                let app_handle = app.app_handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    handler::setup(&app_handle).unwrap();
+                });
+            }
 
             Ok(())
         })

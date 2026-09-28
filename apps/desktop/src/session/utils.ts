@@ -1,7 +1,7 @@
 import type { SessionEvent } from "@anlg/store";
 
 import {
-  WELCOME_NOTE_DESCRIPTION,
+  welcomeNoteDescription,
   WELCOME_NOTE_TRACKING_ID,
 } from "~/onboarding/welcome-note.constants";
 
@@ -37,7 +37,7 @@ export function getSessionEvent(session: {
           meeting_link: "",
           description:
             event.description === LEGACY_WELCOME_DESCRIPTION
-              ? WELCOME_NOTE_DESCRIPTION
+              ? welcomeNoteDescription()
               : event.description,
         }
       : event;

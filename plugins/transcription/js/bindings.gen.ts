@@ -182,6 +182,18 @@ async listDocumentedLanguageCodesBatch() : Promise<Result<string[], string>> {
     else return { status: "error", error: e  as any };
 }
 },
+/**
+ * ZICK-330 Nachzug: wuerde ein neuer Lauf mit diesem Anbieter Mikrofon und
+ * Systemton trennen? Traegt den Hinweis an alten Cloud-Transkripten.
+ */
+async cloudChannelSplitAvailable(provider: string, model: string | null, audioPath: string) : Promise<Result<boolean, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("plugin:transcription|cloud_channel_split_available", { provider, model, audioPath }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async extractVoiceprintCandidates(sessionId: string, transcriptId: string, audioPath: string) : Promise<Result<number, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("plugin:transcription|extract_voiceprint_candidates", { sessionId, transcriptId, audioPath }) };

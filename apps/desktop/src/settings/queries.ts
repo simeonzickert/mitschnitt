@@ -665,6 +665,16 @@ function applySettingSideEffects(values: SettingValues): void {
       .setTrayIconVisible(values.show_tray_icon)
       .catch(console.error);
   }
+  if (values.ai_language !== undefined) {
+    // Der rohe Wert geht durch, ungeparst -- Rust loest ihn selbst auf
+    // (anlg_menu_lang::resolve_lang), damit Tray-Menue, Dock-Menue und die
+    // nativen Dialoge dieselbe binaere de/en-Vereinfachung tragen wie die
+    // Fenster-Oberflaeche (resolveDisplayLocale), egal ueber welchen Weg
+    // die Einstellung sich aendert.
+    void trayCommands
+      .setTrayMenuLanguage(values.ai_language)
+      .catch(console.error);
+  }
   if (values.automatic_updates !== undefined && !isAppStoreBuild()) {
     void updaterCommands
       .setAutomaticUpdatesEnabled(values.automatic_updates)

@@ -2,7 +2,6 @@ mod commands;
 mod error;
 mod events;
 mod ext;
-#[cfg(target_os = "macos")]
 mod store;
 
 pub use error::{Error, Result};

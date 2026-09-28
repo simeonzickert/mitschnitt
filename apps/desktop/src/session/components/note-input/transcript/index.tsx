@@ -13,12 +13,17 @@ import { cn } from "@anlg/utils";
 
 import { useRegenerateTranscript } from "./actions";
 import { canRegenerateTranscript } from "./regenerate-condition";
+import { useConfirmedRegenerate } from "./regenerate-confirmation";
 import { TranscriptViewer } from "./renderer";
 import { TranscriptResumeNotice } from "./resume-notice";
 import { shouldShowTranscriptResumeNotice } from "./resume-notice-condition";
 import { BatchState } from "./screens/batch";
 import { TranscriptEmptyState } from "./screens/empty";
 import { TranscriptListeningState } from "./screens/listening";
+import {
+  TranscriptSpeakerSeparationNotice,
+  useSpeakerSeparationNotice,
+} from "./speaker-separation-notice";
 import { useTranscriptScreen } from "./state";
 
 import { useAudioPlayer } from "~/audio-player";
@@ -119,12 +124,21 @@ function TranscriptContent({
     sessionMode,
     transcriptCount: transcripts.length,
   });
+  // ZICK-330 Nachzug: altes Cloud-Transkript ohne Kanaltrennung. Nur ohne
+  // Fortsetzungs-Streifen, sonst stuenden zwei Neu-Transkribieren-Angebote
+  // uebereinander.
+  const speakerSeparation = useSpeakerSeparationNotice({
+    sessionId,
+    enabled: screen.kind === "ready" && canRegenerate && !showResumeNotice,
+  });
   const handleStopTranscription = useCallback(() => {
     void stopTranscription(sessionId);
   }, [sessionId, stopTranscription]);
-  const handleRegenerateClick = useCallback(() => {
-    void regenerateTranscript();
-  }, [regenerateTranscript]);
+  const confirmedRegenerate = useConfirmedRegenerate(
+    regenerateTranscript,
+    transcripts.some((transcript) => transcript.hasWords),
+  );
+  const handleRegenerateClick = confirmedRegenerate.request;
 
   return (
     <div className="relative flex h-full flex-col overflow-hidden">
@@ -160,18 +174,24 @@ function TranscriptContent({
       {screen.kind === "ready" && (
         <TranscriptTimingNotice sessionId={sessionId} />
       )}
-      {screen.kind === "ready" && canRegenerate && !showResumeNotice && (
-        <div className="flex justify-end pb-2">
-          <Button
-            size="sm"
-            className="gap-2"
-            onClick={handleRegenerateClick}
-          >
-            <ArrowsClockwise className="size-4" />
-            {t`Re-transcribe`}
-          </Button>
-        </div>
+      {screen.kind === "ready" && speakerSeparation.show && (
+        <TranscriptSpeakerSeparationNotice
+          onRegenerate={regenerateTranscript}
+          onDismiss={speakerSeparation.dismiss}
+        />
       )}
+      {screen.kind === "ready" &&
+        canRegenerate &&
+        !showResumeNotice &&
+        speakerSeparation.status === "hidden" && (
+          <div className="flex justify-end pb-2">
+            <Button size="sm" className="gap-2" onClick={handleRegenerateClick}>
+              <ArrowsClockwise className="size-4" />
+              {t`Re-transcribe`}
+            </Button>
+          </div>
+        )}
+      {confirmedRegenerate.dialog}
       {screen.kind === "ready" && showResumeNotice && (
         <TranscriptResumeNotice onRegenerate={regenerateTranscript} />
       )}

@@ -12,6 +12,7 @@
 export {
   findImportSources,
   getImportRun,
+  hasKnownImportSource,
   runSourceImport,
   scanImportSource,
 } from "@anlg/plugin-db";

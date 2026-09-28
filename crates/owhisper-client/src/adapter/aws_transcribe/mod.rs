@@ -63,6 +63,7 @@ impl BatchSttAdapter for AwsTranscribeAdapter {
                     response_format: Some("verbose_json"),
                     timestamp_field: Some("timestamp_granularities[]"),
                     include_language: true,
+                    word_timestamp_models: None,
                 },
             )
             .await

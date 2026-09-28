@@ -12,7 +12,9 @@ use serde::Serialize;
 use serde_json::Value;
 
 use anlg_db_app::SessionDocumentRow;
-use anlg_transcript::{RenderTranscriptHuman, render_transcript_segments};
+use anlg_transcript::{
+    RenderTranscriptHuman, SeparationRow, neutralize_unseparated_labels, render_transcript_segments,
+};
 
 use crate::layout;
 use crate::source::{MIRROR_FORMAT_VERSION, MirrorSource};
@@ -143,7 +145,38 @@ fn transcript_markdown(source: &MirrorSource) -> String {
         self_human_id.map(str::to_string),
     );
 
-    let segments = request.map(render_transcript_segments).unwrap_or_default();
+    let mut segments = request.map(render_transcript_segments).unwrap_or_default();
+
+    // ZICK-312: ohne Sprechertrennung (z. B. ein altes Cloud-Transkript, alles
+    // auf Kanal 0) traegt sonst jede Zeile den Namen des Nutzers. Dieselbe
+    // Regel wie Zusammenfassung und Chat, in Rust genau einmal
+    // (`anlg_transcript::neutralize_unseparated_labels`). Es zaehlen ALLE
+    // Teilnehmer, auch namenlose -- dabei waren sie trotzdem.
+    let parsed = source
+        .transcripts
+        .iter()
+        .map(|row| {
+            (
+                parse_json_array(&row.words_json),
+                parse_json_array(&row.speaker_hints_json),
+            )
+        })
+        .collect::<Vec<_>>();
+    let separation_rows = parsed
+        .iter()
+        .map(|(words, hints)| SeparationRow { words, hints })
+        .collect::<Vec<_>>();
+    let all_participant_ids = source
+        .participants
+        .iter()
+        .map(|participant| participant.human_id.clone())
+        .collect::<Vec<_>>();
+    neutralize_unseparated_labels(
+        &separation_rows,
+        &all_participant_ids,
+        self_human_id,
+        &mut segments,
+    );
 
     if segments.is_empty() {
         out.push_str("_No transcript recorded for this session._\n");
@@ -325,4 +358,8 @@ mod tests {
         // the base; it must not render as a wrapped or negative timecode.
         assert_eq!(timecode(-5_000), "00:00:00");
     }
+}
+
+fn parse_json_array(raw: &str) -> Vec<Value> {
+    serde_json::from_str::<Vec<Value>>(raw).unwrap_or_default()
 }

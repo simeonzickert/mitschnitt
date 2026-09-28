@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-cloud-channel-split-available"
+description = "Enables the cloud_channel_split_available command without any pre-configured scope."
+commands.allow = ["cloud_channel_split_available"]
+
+[[permission]]
+identifier = "deny-cloud-channel-split-available"
+description = "Denies the cloud_channel_split_available command without any pre-configured scope."
+commands.deny = ["cloud_channel_split_available"]

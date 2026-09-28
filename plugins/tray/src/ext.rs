@@ -1,6 +1,6 @@
 use std::sync::{
     Mutex,
-    atomic::{AtomicBool, Ordering},
+    atomic::{AtomicBool, AtomicU8, Ordering},
 };
 
 use tauri::async_runtime::JoinHandle;
@@ -29,6 +29,27 @@ use crate::menu_items::{
 use tauri_plugin_store2::Store2PluginExt;
 
 const TRAY_ID: &str = "anlg-tray";
+
+// Cache fuer die Sprache von Tray- und Dock-Menue + nativen Dialogen
+// (anlg_menu_lang::Lang als u8: 0 = Englisch, 1 = Deutsch). Ein u8 statt
+// eines Mutex<Lang>, weil `Lang` selbst kein `Copy`-freundliches Atomic
+// bekommt und der Zustand nur zwei Werte kennt. `current_menu_lang()`
+// dekodiert zurueck, `set_menu_language()` (auf `Tray`) ist der einzige
+// Schreibpfad und stoesst danach `refresh_menu()` an, damit die Aenderung
+// sofort im Aufklapp-Menue steht (Dock braucht das nicht: sein Menue wird
+// von AppKit bei jedem Oeffnen frisch gebaut, siehe plugins/dock/src/ext.rs).
+static MENU_LANG: AtomicU8 = AtomicU8::new(0);
+
+/// Die aktuell gesetzte Sprache fuer Tray, Dock und die nativen Dialoge.
+/// Dock liest hierueber (`tauri_plugin_tray::current_menu_lang()`), weil es
+/// bereits eine Abhaengigkeit auf dieses Plugin hat -- keine zweite
+/// Zustandshaltung noetig.
+pub fn current_menu_lang() -> anlg_menu_lang::Lang {
+    match MENU_LANG.load(Ordering::SeqCst) {
+        1 => anlg_menu_lang::Lang::De,
+        _ => anlg_menu_lang::Lang::En,
+    }
+}
 
 static IS_RECORDING: AtomicBool = AtomicBool::new(false);
 static IS_DEGRADED: AtomicBool = AtomicBool::new(false);
@@ -281,6 +302,21 @@ impl<'a, M: tauri::Manager<tauri::Wry>> Tray<'a, tauri::Wry, M> {
         Self::rebuild_menu(app)?;
         Self::restart_schedule_task(app);
         Ok(())
+    }
+
+    /// Setzt die Sprache von Tray-Menue + nativen Dialogen aus dem rohen
+    /// Wert der Einstellung `ai_language`/"Main language" (so wie die
+    /// Oberflaeche ihn im Katalog abspeichert, ungeparst) und baut das
+    /// Aufklapp-Menue sofort neu -- derselbe Rebuild-Weg wie bei
+    /// `set_show_events` oben. Das Dock-Menue braucht keinen eigenen Aufruf:
+    /// es liest `current_menu_lang()` bei jedem Oeffnen frisch (AppKit ruft
+    /// `applicationDockMenu:` jedes Mal neu auf, siehe plugins/dock/src/ext.rs).
+    pub fn set_menu_language(&self, ai_language: Option<&str>) -> Result<()> {
+        let lang = anlg_menu_lang::resolve_lang(ai_language);
+        MENU_LANG.store(matches!(lang, anlg_menu_lang::Lang::De) as u8, Ordering::SeqCst);
+
+        let app = self.manager.app_handle();
+        Self::rebuild_menu(app)
     }
 
     fn load_show_events(app: &AppHandle<tauri::Wry>) -> bool {

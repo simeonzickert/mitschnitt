@@ -35,8 +35,8 @@ Most meeting tools send a bot into your call and your conversation into someone 
 
 ## Install
 
-1. Download `Mitschnitt-<version>-notarisiert.zip` ("notarisiert" is German for notarized) from the [latest release](https://github.com/simeonzickert/mitschnitt/releases/latest) and unzip it.
-2. Drag **Mitschnitt** into your Applications folder and open it. The app is notarized by Apple, so macOS opens it without a warning.
+1. Download `Mitschnitt-<version>.dmg` from the [latest release](https://github.com/simeonzickert/mitschnitt/releases/latest) and double-click it. (The other files on that page are for automatic updates, you don't need them.)
+2. In the window that opens, drag **Mitschnitt** onto the Applications folder, then open it from Applications. The app is notarized by Apple, so macOS opens it without a warning.
 3. Grant the permissions it asks for. Each one is requested only when you click:
    - **Microphone**, for your own voice.
    - **System audio**, for everyone else in the call.

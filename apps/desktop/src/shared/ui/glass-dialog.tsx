@@ -1,4 +1,4 @@
-import type { ComponentProps } from "react";
+import { type ComponentProps, type ComponentRef, forwardRef } from "react";
 
 import { Button } from "@anlg/ui/components/ui/button";
 import { DialogContent } from "@anlg/ui/components/ui/dialog";
@@ -14,20 +14,34 @@ import { cn } from "@anlg/utils";
  * Dialog die schlechteste Mischung: unsichtbar fuer den, der raus will, und
  * ein Versehen fuer den, der es nicht wollte.
  *
- * Ausdruecklich ein Schalter und keine neue Grundeinstellung. Die beiden
- * anderen Verwender haben einen sichtbaren Ausgang (`Cancel`) und bleiben
- * deshalb unangetastet: `destructive-confirmation-dialog` und der
- * Kalender-Berechtigungsdialog.
+ * Ausdruecklich ein Schalter und keine neue Grundeinstellung. Die anderen
+ * Verwender haben einen sichtbaren Ausgang (`Cancel`/Skip) und bleiben
+ * deshalb unangetastet: `destructive-confirmation-dialog`, der
+ * Kalender-Berechtigungsdialog und seit 26.09.2026 auch `session/nachfrage`
+ * (dort nur noch waehrend des Speicherns gesperrt, siehe dort).
+ *
+ * `forwardRef` seit 26.09.2026: der Nachfrage-Dialog braucht den echten
+ * DOM-Knoten, um seine Escape-Weiche auf den EIGENEN Inhalt zu scopen
+ * (`dialogRef.current?.querySelector(...)`) statt auf das ganze Dokument --
+ * ohne Ref war das vorher unmoeglich, eine Funktionskomponente kann keinen
+ * Ref annehmen.
  */
-export function GlassDialogContent({
-  className,
-  verbindlich = false,
-  onEscapeKeyDown,
-  onInteractOutside,
-  ...props
-}: ComponentProps<typeof DialogContent> & { verbindlich?: boolean }) {
+export const GlassDialogContent = forwardRef<
+  ComponentRef<typeof DialogContent>,
+  ComponentProps<typeof DialogContent> & { verbindlich?: boolean }
+>(function GlassDialogContent(
+  {
+    className,
+    verbindlich = false,
+    onEscapeKeyDown,
+    onInteractOutside,
+    ...props
+  },
+  ref,
+) {
   return (
     <DialogContent
+      ref={ref}
       overlayClassName="bg-black/40"
       onEscapeKeyDown={(event) => {
         if (verbindlich) {
@@ -52,7 +66,7 @@ export function GlassDialogContent({
       {...props}
     />
   );
-}
+});
 
 export function GlassDialogCancelButton({
   className,

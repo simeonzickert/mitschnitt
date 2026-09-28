@@ -105,6 +105,20 @@ async findImportSources() : Promise<Result<ImportSourceScan[], string>> {
     else return { status: "error", error: e  as any };
 }
 },
+/**
+ * Billige Ja/Nein-Frage fuer die Sichtbarkeit einer UI-Zeile (S3, Orchestrator
+ * 26.09.2026) -- ohne Datenbank-Pool und ohne die teure Pruefung, die
+ * `find_import_sources` je Fund macht. Fuer den Import-Dialog selbst bleibt
+ * `find_import_sources` die richtige, vollstaendige Antwort.
+ */
+async hasKnownImportSource() : Promise<Result<boolean, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("plugin:db|has_known_import_source") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async scanImportSource(sourcePath: string) : Promise<Result<ImportSourceScan, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("plugin:db|scan_import_source", { sourcePath }) };

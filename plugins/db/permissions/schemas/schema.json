@@ -451,6 +451,18 @@
           "markdownDescription": "Denies the get_startup_status command without any pre-configured scope."
         },
         {
+          "description": "Enables the has_known_import_source command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-has-known-import-source",
+          "markdownDescription": "Enables the has_known_import_source command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the has_known_import_source command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-has-known-import-source",
+          "markdownDescription": "Denies the has_known_import_source command without any pre-configured scope."
+        },
+        {
           "description": "Enables the list_meetings command without any pre-configured scope.",
           "type": "string",
           "const": "allow-list-meetings",
@@ -535,10 +547,10 @@
           "markdownDescription": "Denies the wait_until_ready command without any pre-configured scope."
         },
         {
-          "description": "Default permissions for the plugin\n#### This default permission set includes:\n\n- `allow-apply-session-ingest`\n- `allow-execute`\n- `allow-execute-proxy`\n- `allow-execute-transaction`\n- `allow-list-meetings`\n- `allow-get-meeting`\n- `allow-get-meeting-transcript`\n- `allow-get-recurring-meeting-history`\n- `allow-get-legacy-cleanup-status`\n- `allow-get-legacy-import-report`\n- `allow-cleanup-legacy-files`\n- `allow-run-legacy-import`\n- `allow-find-import-sources`\n- `allow-scan-import-source`\n- `allow-run-source-import`\n- `allow-get-import-run`\n- `allow-subscribe`\n- `allow-unsubscribe`\n- `allow-get-startup-status`\n- `allow-wait-until-ready`",
+          "description": "Default permissions for the plugin\n#### This default permission set includes:\n\n- `allow-apply-session-ingest`\n- `allow-execute`\n- `allow-execute-proxy`\n- `allow-execute-transaction`\n- `allow-list-meetings`\n- `allow-get-meeting`\n- `allow-get-meeting-transcript`\n- `allow-get-recurring-meeting-history`\n- `allow-get-legacy-cleanup-status`\n- `allow-get-legacy-import-report`\n- `allow-cleanup-legacy-files`\n- `allow-run-legacy-import`\n- `allow-find-import-sources`\n- `allow-has-known-import-source`\n- `allow-scan-import-source`\n- `allow-run-source-import`\n- `allow-get-import-run`\n- `allow-subscribe`\n- `allow-unsubscribe`\n- `allow-get-startup-status`\n- `allow-wait-until-ready`",
           "type": "string",
           "const": "default",
-          "markdownDescription": "Default permissions for the plugin\n#### This default permission set includes:\n\n- `allow-apply-session-ingest`\n- `allow-execute`\n- `allow-execute-proxy`\n- `allow-execute-transaction`\n- `allow-list-meetings`\n- `allow-get-meeting`\n- `allow-get-meeting-transcript`\n- `allow-get-recurring-meeting-history`\n- `allow-get-legacy-cleanup-status`\n- `allow-get-legacy-import-report`\n- `allow-cleanup-legacy-files`\n- `allow-run-legacy-import`\n- `allow-find-import-sources`\n- `allow-scan-import-source`\n- `allow-run-source-import`\n- `allow-get-import-run`\n- `allow-subscribe`\n- `allow-unsubscribe`\n- `allow-get-startup-status`\n- `allow-wait-until-ready`"
+          "markdownDescription": "Default permissions for the plugin\n#### This default permission set includes:\n\n- `allow-apply-session-ingest`\n- `allow-execute`\n- `allow-execute-proxy`\n- `allow-execute-transaction`\n- `allow-list-meetings`\n- `allow-get-meeting`\n- `allow-get-meeting-transcript`\n- `allow-get-recurring-meeting-history`\n- `allow-get-legacy-cleanup-status`\n- `allow-get-legacy-import-report`\n- `allow-cleanup-legacy-files`\n- `allow-run-legacy-import`\n- `allow-find-import-sources`\n- `allow-has-known-import-source`\n- `allow-scan-import-source`\n- `allow-run-source-import`\n- `allow-get-import-run`\n- `allow-subscribe`\n- `allow-unsubscribe`\n- `allow-get-startup-status`\n- `allow-wait-until-ready`"
         }
       ]
     }

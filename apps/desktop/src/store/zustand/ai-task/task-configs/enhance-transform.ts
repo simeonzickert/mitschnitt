@@ -34,6 +34,7 @@ import {
   renderTranscriptSegments,
   type TranscriptRow,
 } from "~/stt/render-transcript";
+import { createSpeakerLabelResolver } from "~/stt/speaker-separation";
 import { getTemplateById } from "~/templates/queries";
 
 type TranscriptMeta = {
@@ -291,11 +292,18 @@ async function getTranscriptSegments(
   }
 
   const segments = await renderTranscriptSegments(request);
+  const speakerLabel = createSpeakerLabelResolver(
+    transcriptRows,
+    snapshot.participants.map((participant) => participant.humanId),
+    snapshot.ownerUserId,
+  );
 
   return segments
     .reduce<SegmentPayload[]>((result, segment) => {
       if (segment.words.length > 0) {
-        result.push(toSegmentPayload(segment));
+        const payload = toSegmentPayload(segment);
+        payload.speaker_label = speakerLabel(segment);
+        result.push(payload);
       }
       return result;
     }, [])

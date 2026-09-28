@@ -1,3 +1,4 @@
+import { useLingui } from "@lingui/react/macro";
 import { CaretDown, Sparkle } from "@phosphor-icons/react";
 import { useCallback, useMemo } from "react";
 
@@ -64,6 +65,7 @@ export function HeaderViewEnhanced({
 }
 
 function useEnhancedViewTitle(enhancedNoteId: string) {
+  const { t } = useLingui();
   const enhancedNote = useEnhancedNote(enhancedNoteId);
   const rawTitle = enhancedNote?.title;
   const templateId = enhancedNote?.templateId;
@@ -79,7 +81,7 @@ function useEnhancedViewTitle(enhancedNoteId: string) {
     viewTitle,
     templateTooltip:
       templateId && templateTitle
-        ? `${templateTitle} was used to generate this summary.`
+        ? t`${templateTitle} was used to generate this summary.`
         : undefined,
   };
 }
@@ -133,6 +135,7 @@ function HeaderViewEnhancedActive({
   onRemove?: () => void;
   onSelectNote?: (enhancedNoteId: string) => void;
 }) {
+  const { t } = useLingui();
   const { isGenerating, isError, onRegenerate } = useEnhanceLogic(
     sessionId,
     enhancedNoteId,
@@ -145,10 +148,10 @@ function HeaderViewEnhancedActive({
 
   const handleCopy = useCallback(() => {
     return copyTextToClipboard(noteMarkdown, {
-      success: `${viewTitle} copied to clipboard`,
-      error: `Failed to copy ${viewTitle}`,
+      success: t`${viewTitle} copied to clipboard`,
+      error: t`Failed to copy ${viewTitle}`,
     });
-  }, [noteMarkdown, viewTitle]);
+  }, [noteMarkdown, t, viewTitle]);
   const handleRegenerate = useCallback(() => {
     void onRegenerate(null);
   }, [onRegenerate]);
@@ -190,7 +193,7 @@ function HeaderViewEnhancedActive({
     const items: MenuItemDef[] = [
       {
         id: `copy-enhanced-${enhancedNoteId}`,
-        text: "Copy",
+        text: t`Copy`,
         action: () => {
           void handleCopy();
         },
@@ -198,7 +201,7 @@ function HeaderViewEnhancedActive({
       },
       {
         id: `regenerate-enhanced-${enhancedNoteId}`,
-        text: "Regenerate",
+        text: t`Regenerate`,
         action: handleRegenerate,
         disabled: isGenerating,
       },
@@ -208,7 +211,7 @@ function HeaderViewEnhancedActive({
       items.push({ separator: true });
       items.push({
         id: `remove-enhanced-${enhancedNoteId}`,
-        text: "Remove",
+        text: t`Remove`,
         action: () => {
           onRemove?.();
         },
@@ -225,6 +228,7 @@ function HeaderViewEnhancedActive({
     isGenerating,
     noteMarkdown.length,
     onRemove,
+    t,
   ]);
   const showContextMenu = useNativeContextMenu(contextMenu);
   const templateMenuTrigger = (

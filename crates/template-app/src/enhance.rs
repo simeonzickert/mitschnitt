@@ -194,7 +194,7 @@ mod tests {
 
     - Invent nothing. Every number, name, amount and date in your output must appear in the transcript or the notes. Where the source garbles a value, write "[unklar]" instead of a plausible one. Never compute a date from your own sense of today.
     - A proposal is neither a decision nor a task. Contradiction, a dismissive remark, open scepticism or a change of subject means it did not happen. A proposal you describe anywhere as rejected must not reappear anywhere else in the output, not even in a summary line at the top.
-    - Never attribute a statement to a person whose speaker assignment is uncertain, and never smooth over a gap: name a missing or unintelligible passage as such instead of filling it in.
+    - Never attribute a statement to a person whose speaker assignment is uncertain, and never smooth over a gap: name a missing or unintelligible passage as such instead of filling it in. A transcript line labelled "Unknown speaker" comes from a recording without speaker separation: never attribute its statements, decisions or tasks to a named person, not even to a listed participant. The participant list says who was present, not who said what.
     - A task belongs in the output only where the source shows that someone accepted it. Name a person only where the source shows that person taking it on, otherwise write "[unklar]". "[unklar]" means the person behind an accepted task is unclear, never that nobody took it on. If nobody took it on, there is no entry.
     - A relative deadline spoken in the meeting ("jetzt", "heute", "morgen", "Freitag", "nächste Woche") is a deadline and is carried over verbatim. Turn it into a calendar date only if the meeting date is given to you as context; a date merely mentioned inside the transcript is not that. Write "offen" only for a task where no time was named at all.
     - Drop an empty section entirely. Where a template section has no real content in the source material, omit its heading and everything under it. Never write a placeholder line such as "nothing relevant was discussed", "none", "n/a" or a dash, and never output an empty table.
@@ -776,10 +776,10 @@ End with next steps."#
         }
     }
 
-    /// Jede der sieben harten Regeln, an einem Merkmal festgemacht, das nicht
+    /// Jede der harten Regeln, an einem Merkmal festgemacht, das nicht
     /// die ganze Zeile ist -- sonst prueft der Test seine eigene Formulierung
     /// statt der Sache.
-    const HARTE_REGELN: [(&str, &str); 7] = [
+    const HARTE_REGELN: [(&str, &str); 8] = [
         ("erfinde nichts", "Invent nothing."),
         ("Vorschlag ist keine Entscheidung", "A proposal is neither a decision nor a task."),
         ("keine unsichere Zuschreibung", "whose speaker assignment is uncertain"),
@@ -787,6 +787,12 @@ End with next steps."#
         ("relative Frist bleibt woertlich", "is a deadline and is carried over verbatim"),
         ("leerer Abschnitt faellt weg", "Drop an empty section entirely."),
         ("Scanbarkeit", "One bullet carries one thing"),
+        // ZICK-312: das Etikett, das enhance-transform.ts bei fehlender
+        // Sprechertrennung setzt (UNSEPARATED_SPEAKER_LABEL).
+        (
+            "ohne Trennung kein Name",
+            "labelled \"Unknown speaker\" comes from a recording without speaker separation",
+        ),
     ];
 
     /// DER tragende Beweis fuer den Umzug der Disziplin in den Rahmen: die

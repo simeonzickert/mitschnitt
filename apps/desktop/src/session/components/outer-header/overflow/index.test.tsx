@@ -292,7 +292,43 @@ describe("OverflowButton", () => {
     expect(container.querySelectorAll("hr")).toHaveLength(1);
   });
 
+  it("asks before the overflow menu replaces an existing transcript (Forge M6)", async () => {
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
+      callback(0);
+      return 0;
+    });
+    audioExists.value = true;
+    useHasTranscriptMock.mockReturnValue(true);
+    regenerateTranscriptMock.mockResolvedValue(undefined);
+
+    render(
+      <OverflowButton
+        sessionId="session-1"
+        currentView={{ type: "enhanced", id: "note-1" } as EditorView}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Re-transcribe" }));
+    expect(regenerateTranscriptMock).not.toHaveBeenCalled();
+    expect(
+      screen.getByRole("heading", {
+        name: "Re-transcribe the whole recording?",
+      }),
+    ).toBeTruthy();
+
+    const buttons = screen.getAllByRole("button", { name: "Re-transcribe" });
+    fireEvent.click(buttons[buttons.length - 1]!);
+    expect(regenerateTranscriptMock).toHaveBeenCalledTimes(1);
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog")).toBeNull();
+    });
+  });
+
   it("offers resume and re-transcribe when recorded audio exists", () => {
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
+      callback(0);
+      return 0;
+    });
     audioExists.value = true;
     useHasTranscriptMock.mockReturnValue(false);
 

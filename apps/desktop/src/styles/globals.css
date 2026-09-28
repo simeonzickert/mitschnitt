@@ -5,6 +5,49 @@
 @import "./dark-theme.css";
 @import "../../../../packages/ui/src/styles/scroll-fade.css";
 
+/*
+ * Geist + Geist Mono, self-hosted (28.09.2026), via Fontsource (latin
+ * subset). SIL Open Font License 1.1 -- the license texts ship alongside the
+ * .woff2 files in public/fonts/ and are bundled into the app under
+ * Contents/Resources/licenses/ (see tauri.conf.json + ATTRIBUTIONS.md,
+ * Section 2).
+ */
+@font-face {
+  font-family: "Geist";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/fonts/geist-latin-400-normal.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Geist";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("/fonts/geist-latin-500-normal.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Geist";
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("/fonts/geist-latin-600-normal.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Geist Mono";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/fonts/geist-mono-latin-400-normal.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Geist Mono";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("/fonts/geist-mono-latin-500-normal.woff2") format("woff2");
+}
+
 @custom-variant dark (&:where(.dark, .dark *));
 
 html[data-floating-bar],
@@ -35,9 +78,21 @@ html[data-live-caption] #root {
 @source "../../../../packages/pricing/src";
 
 @theme {
+  /*
+   * Geist ueberall -- Fliesstext UND Ueberschriften (28.09.2026).
+   * --font-hand (Bradley Hand/Segoe Print/Comic Sans, nur system-eigene
+   * Schriften) ist damit entfallen: die beiden Stellen, die sie trugen
+   * (Einstellungs-Seitentitel, Onboarding-Willkommensgruss), setzen jetzt
+   * einfach Geist mit font-semibold -- eine eigene Handschrift-Identitaet
+   * war nie das Ziel, nur ein Kontrast zum Systemfont, den es jetzt nicht
+   * mehr braucht.
+   */
   --font-sans:
-    system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  --font-hand: "Bradley Hand", "Segoe Print", "Comic Sans MS", cursive;
+    "Geist", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    sans-serif;
+  --font-mono:
+    "Geist Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+    "Liberation Mono", "Courier New", monospace;
 
   --color-border: hsl(var(--border));
   --color-input: hsl(var(--input));

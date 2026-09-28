@@ -83,8 +83,17 @@ const SelectContent = React.forwardRef<
       <SelectPrimitive.Viewport
         className={cn([
           "p-1",
-          position === "popper" &&
-            "h-(--radix-select-trigger-height) w-full min-w-(--radix-select-trigger-width)",
+          // Nur die Breite an den Trigger binden, NICHT die Hoehe: Radix setzt
+          // --radix-select-trigger-height auf die Hoehe des Trigger-BUTTONS
+          // (z.B. 36px), nicht auf die verfuegbare Bildschirmhoehe. Eine
+          // Hoehen-Bindung hier zwingt das Viewport (das Radix intern mit
+          // overflow: hidden auto rendert) auf diese Mini-Hoehe, egal wie
+          // viele Eintraege die Liste hat -- lange Listen wirkten dadurch nach
+          // 2-3 Zeilen abgeschnitten (Befund 28.09.2026, Anbieterlisten).
+          // SelectContent begrenzt die Gesamthoehe bereits auf
+          // --radix-select-content-available-height; das Viewport darf
+          // innerhalb dieser Grenze mit seinem Inhalt wachsen.
+          position === "popper" && "w-full min-w-(--radix-select-trigger-width)",
         ])}
       >
         {children}

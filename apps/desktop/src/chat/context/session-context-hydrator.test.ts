@@ -98,11 +98,21 @@ describe("session chat context hydration", () => {
           ended_at: 200,
           memo: "",
           words: [
+            // Zwei Kanaele: eine echte Trennung. Ohne Kanalangabe gaelte das
+            // Transkript seit Forge M5 als ungetrennt (fail-closed).
             {
               id: "word-1",
               text: "Transcript text",
               start_ms: 0,
               end_ms: 100,
+              channel: 0,
+            },
+            {
+              id: "word-2",
+              text: "Reply",
+              start_ms: 100,
+              end_ms: 200,
+              channel: 1,
             },
           ],
           speaker_hints: [],
@@ -160,6 +170,37 @@ describe("session chat context hydration", () => {
       }),
       ["human-1"],
     );
+  });
+
+  describe("ZICK-312: Chat nennt ohne Sprechertrennung keine Namen", () => {
+    async function speakersFor(channels: number[]) {
+      const snapshot = await mocks.loadSessionContentSnapshot();
+      mocks.loadSessionContentSnapshot.mockResolvedValueOnce({
+        ...snapshot,
+        transcripts: [
+          {
+            ...snapshot.transcripts[0],
+            words: channels.map((channel, index) => ({
+              id: `word-${index}`,
+              text: "x",
+              start_ms: index * 100,
+              end_ms: index * 100 + 50,
+              channel,
+            })),
+          },
+        ],
+      });
+      const context = await hydrateSessionContext("session-1", "user-1");
+      return context?.transcript?.segments.map((segment) => segment.speaker);
+    }
+
+    it("etikettiert ein Ein-Kanal-Transkript mit anderen Teilnehmern neutral", async () => {
+      await expect(speakersFor([0, 0])).resolves.toEqual(["Unknown speaker"]);
+    });
+
+    it("behaelt die Namen, wenn Mikrofon und Systemton getrennt sind", async () => {
+      await expect(speakersFor([0, 1])).resolves.toEqual(["SQLite Person"]);
+    });
   });
 
   it("returns null when the canonical session is unavailable", async () => {

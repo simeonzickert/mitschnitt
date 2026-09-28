@@ -1,3 +1,5 @@
+import type { MessageDescriptor } from "@lingui/core";
+import { msg } from "@lingui/core/macro";
 import { Trans, useLingui } from "@lingui/react/macro";
 import {
   ArrowsClockwise,
@@ -52,6 +54,33 @@ import {
   useMeetingImportHistory,
 } from "./queries";
 
+// Nur der markenlose Ordner-Import (S2) braucht diese Ausnahme: sein `name`
+// ist ein Satz, kein Markenname, und muss deshalb hier uebersetzt werden --
+// alle anderen Eintraege bleiben Eigennamen (Granola, Zoom, ...) und laufen
+// unveraendert durch `provider.name`.
+const IMPORT_FOLDER_ROW_NAME = msg`Import from folder…`;
+const IMPORT_FOLDER_DIALOG_SUBJECT = msg`your other app`;
+
+type I18n = { _: (descriptor: MessageDescriptor) => string };
+
+function providerRowName(
+  provider: Pick<MeetingImportProvider, "id" | "name" | "dialogSubject">,
+  i18n: I18n,
+): string {
+  return provider.dialogSubject
+    ? i18n._(IMPORT_FOLDER_ROW_NAME)
+    : provider.name;
+}
+
+function providerDialogSubject(
+  provider: Pick<MeetingImportProvider, "id" | "name" | "dialogSubject">,
+  i18n: I18n,
+): string {
+  return provider.dialogSubject
+    ? i18n._(IMPORT_FOLDER_DIALOG_SUBJECT)
+    : provider.name;
+}
+
 const IMPORT_EXTENSIONS = [
   "csv",
   "json",
@@ -102,7 +131,7 @@ export function MeetingImportScreen({
   onNoSourcesDetected?: () => void;
   secondaryAction?: ReactNode;
 }) {
-  const { t } = useLingui();
+  const { t, i18n } = useLingui();
   const queryClient = useQueryClient();
   const connectAbortController = useRef<AbortController | null>(null);
   const [folderImportProvider, setFolderImportProvider] =
@@ -347,7 +376,7 @@ export function MeetingImportScreen({
                     </span>
                     <div className="min-w-0 flex-1">
                       <span className="block truncate text-sm font-medium">
-                        {provider.name}
+                        {providerRowName(provider, i18n)}
                       </span>
                       {connectedProvider ? (
                         <p className="text-muted-foreground mt-1 text-xs">
@@ -560,7 +589,7 @@ export function MeetingImportScreen({
           onOpenChange={(next) => {
             if (!next) setFolderImportProvider(null);
           }}
-          providerName={folderImportProvider.name}
+          providerName={providerDialogSubject(folderImportProvider, i18n)}
         />
       ) : null}
     </div>

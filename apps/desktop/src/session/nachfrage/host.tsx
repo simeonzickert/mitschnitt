@@ -1,7 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { NachfrageDialog } from "./dialog";
-import { frageranmelden, nachfrageErledigt, useNachfrageStore } from "./gate";
+import {
+  frageranmelden,
+  markiereNachfrageBeantwortet,
+  nachfrageErledigt,
+  useNachfrageStore,
+} from "./gate";
 import { nachfrageSpeichern } from "./speichern";
 import { fremdeTeilnehmerNamen } from "./teilnehmer";
 
@@ -43,6 +48,12 @@ function NachfrageFuerSitzung({ sessionId }: { sessionId: string }) {
   const titelVorher = session?.title ?? "";
 
   const verwerfen = useCallback(() => {
+    // Ueberspringen ist eine Antwort: "einmal pro Gespraech, fuer immer"
+    // (siehe entscheidung.ts) -- ein zweiter Stopp derselben Sitzung, z. B.
+    // nach "Weiter aufnehmen", fragt nicht erneut. Der Merker blockiert
+    // nichts: `nachfrageErledigt` gibt die Zusammenfassung unabhaengig davon
+    // frei, ob dieser Schreibvorgang schon fertig ist.
+    void markiereNachfrageBeantwortet(sessionId);
     nachfrageErledigt(sessionId);
   }, [sessionId]);
 
@@ -76,6 +87,9 @@ function NachfrageFuerSitzung({ sessionId }: { sessionId: string }) {
         },
       ).finally(() => {
         setLaeuft(false);
+        // Derselbe Merker wie bei `verwerfen`: einmal beantwortet, egal ob
+        // ein einzelner Name darin scheiterte (siehe `nachfrageSpeichern`).
+        void markiereNachfrageBeantwortet(sessionId);
         // Die Zusammenfassung wartet auf diese Zeile, in jedem Ausgang.
         nachfrageErledigt(sessionId);
       });

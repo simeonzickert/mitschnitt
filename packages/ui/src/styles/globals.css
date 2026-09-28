@@ -5,6 +5,30 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 @theme {
+  /*
+   * Muss mit apps/desktop/src/styles/globals.css uebereinstimmen (28.09.2026,
+   * Geist-Umstellung). Dieses Paket wird via `tailwindcss` CLI EIGENSTAENDIG
+   * zu dist/globals.css kompiliert (siehe package.json "build") und danach
+   * separat importiert (main.tsx: "@anlg/ui/globals.css", NACH dem App-eigenen
+   * globals.css) -- Tailwind fuellt jede eigenstaendige Kompilierung mit
+   * IHREM EIGENEN --font-sans/--font-mono auf, wenn hier keins steht (sonst
+   * der eingebaute Tailwind-Default "ui-sans-serif"/"ui-monospace"). Beide
+   * Dateien landen im selben CSS-Bundle, in genau dieser Reihenfolge -- ohne
+   * diese Zeile wuerde der spaeter importierte Tailwind-Default die App-weite
+   * Geist-Einstellung in derselben @layer wieder ueberschreiben (gemessen an
+   * dist/assets/index-*.css: zwei :root,:host-Regeln in @layer theme, die
+   * zweite -- aus diesem Paket -- gewinnt per Quellreihenfolge). Die
+   * eigentlichen @font-face-Regeln bleiben in apps/desktop/src/styles/
+   * globals.css; der Name "Geist"/"Geist Mono" reicht hier, damit der
+   * Browser dieselbe global geladene Schrift findet.
+   */
+  --font-sans:
+    "Geist", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    sans-serif;
+  --font-mono:
+    "Geist Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+    "Liberation Mono", "Courier New", monospace;
+
   --animate-accordion-down: accordion-down 0.2s ease-out;
   --animate-accordion-up: accordion-up 0.2s ease-out;
   --animate-anarlog-dancing-stick: anarlog-dancing-stick 1s ease-in-out

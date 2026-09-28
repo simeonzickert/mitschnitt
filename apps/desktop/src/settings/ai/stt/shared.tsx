@@ -1,3 +1,5 @@
+import type { MessageDescriptor } from "@lingui/core";
+import { msg } from "@lingui/core/macro";
 import {
   AlibabaCloud,
   AssemblyAI,
@@ -51,16 +53,22 @@ type Provider = {
   badge?: string | null;
   requirements: ProviderRequirement[];
   links?: {
-    models?: { label: string; url: string };
-    setup?: { label: string; url: string };
+    models?: { label: MessageDescriptor; url: string };
+    setup?: { label: MessageDescriptor; url: string };
   };
 };
 
+// Zwei Beschriftungen kommen bei fast jedem Anbieter vor -- eine Konstante
+// pro Text statt zwanzig identischer msg-Aufrufe.
+const AVAILABLE_MODELS_LABEL = msg`Available models`;
+const API_SETUP_LABEL = msg`API setup`;
+
 const OPENROUTER_MODEL_LABELS: Record<string, string> = {
+  "google/gemini-3.5-transcribe": "Gemini 3.5 Transcribe",
   "fish-audio/transcribe-1": "Transcribe 1",
   "x-ai/grok-stt-1.0": "Grok STT 1.0",
   "deepgram/nova-3": "Nova 3",
-  "microsoft/mai-transcribe-1.5": "MAI Transcribe 1.5",
+  "microsoft/mai-transcribe-2": "MAI Transcribe 2",
   "nvidia/parakeet-tdt-0.6b-v3": "Parakeet TDT 0.6B V3",
   "mistralai/voxtral-mini-transcribe": "Voxtral Mini Transcribe",
   "qwen/qwen3-asr-flash-2026-02-10": "Qwen3 ASR Flash",
@@ -316,6 +324,31 @@ export function isDeprecatedSttModel(
   return DEPRECATED_STT_MODELS[provider]?.includes(model) === true;
 }
 
+// Direkt gemessen (28.09.2026): `verbose_json` liefert fuer diese Modelle
+// HTTP 400 statt Wortzeiten (crates/owhisper-client/src/adapter/openrouter/mod.rs
+// traegt die Gegenliste der Modelle, die es koennen). Ohne Wortzeiten baut
+// die App die Zeiten selbst, gleichverteilt ueber den Abschnitt -- bei einem
+// Gespraech mit zwei Kanaelen koennen sich Sprecher dadurch ueberschneiden.
+const STT_MODELS_WITHOUT_WORD_TIMINGS: Record<string, readonly string[]> = {
+  openai: ["gpt-transcribe"],
+  openrouter: ["openai/gpt-transcribe"],
+};
+
+export function sttModelHasNoWordTimings(
+  provider?: string | null,
+  model?: string | null,
+) {
+  if (!provider || !model) {
+    return false;
+  }
+
+  return STT_MODELS_WITHOUT_WORD_TIMINGS[provider]?.includes(model) === true;
+}
+
+// Direkt gemessen (28.09.2026, crates/owhisper-client/src/adapter/openrouter/mod.rs):
+// eines der Modelle mit echten Wortzeiten, deshalb Vorauswahl in der Liste.
+export const OPENROUTER_RECOMMENDED_MODEL = "google/gemini-3.5-transcribe";
+
 export function displayModelLabel(model: string, displayName?: string) {
   return displayName ?? displayModelId(model);
 }
@@ -429,11 +462,11 @@ const _PROVIDERS = [
     requirements: [{ kind: "requires_config", fields: ["api_key"] }],
     links: {
       models: {
-        label: "Available models",
+        label: AVAILABLE_MODELS_LABEL,
         url: "https://developers.deepgram.com/docs/models-languages-overview",
       },
       setup: {
-        label: "API setup",
+        label: API_SETUP_LABEL,
         url: "https://console.deepgram.com/",
       },
     },
@@ -454,11 +487,11 @@ const _PROVIDERS = [
     requirements: [{ kind: "requires_config", fields: ["api_key"] }],
     links: {
       models: {
-        label: "Available models",
+        label: AVAILABLE_MODELS_LABEL,
         url: "https://www.assemblyai.com/docs/speech-to-text",
       },
       setup: {
-        label: "API setup",
+        label: API_SETUP_LABEL,
         url: "https://www.assemblyai.com/dashboard",
       },
     },
@@ -481,11 +514,11 @@ const _PROVIDERS = [
     requirements: [{ kind: "requires_config", fields: ["api_key"] }],
     links: {
       models: {
-        label: "Available models",
+        label: AVAILABLE_MODELS_LABEL,
         url: "https://platform.openai.com/docs/guides/speech-to-text",
       },
       setup: {
-        label: "API setup",
+        label: API_SETUP_LABEL,
         url: "https://platform.openai.com/api-keys",
       },
     },
@@ -498,6 +531,7 @@ const _PROVIDERS = [
     icon: <ProviderLobeIcon icon={OpenRouter} />,
     baseUrl: "https://openrouter.ai/api/v1",
     models: [
+      "google/gemini-3.5-transcribe",
       "openai/gpt-transcribe",
       "openai/gpt-4o-mini-transcribe",
       "openai/gpt-4o-transcribe",
@@ -507,7 +541,7 @@ const _PROVIDERS = [
       "fish-audio/transcribe-1",
       "x-ai/grok-stt-1.0",
       "deepgram/nova-3",
-      "microsoft/mai-transcribe-1.5",
+      "microsoft/mai-transcribe-2",
       "nvidia/parakeet-tdt-0.6b-v3",
       "qwen/qwen3-asr-flash-2026-02-10",
       "google/chirp-3",
@@ -516,11 +550,11 @@ const _PROVIDERS = [
     requirements: [{ kind: "requires_config", fields: ["api_key"] }],
     links: {
       models: {
-        label: "Available models",
+        label: AVAILABLE_MODELS_LABEL,
         url: "https://openrouter.ai/models?output_modalities=transcription",
       },
       setup: {
-        label: "API setup",
+        label: API_SETUP_LABEL,
         url: "https://openrouter.ai/settings/keys",
       },
     },
@@ -536,11 +570,11 @@ const _PROVIDERS = [
     requirements: [{ kind: "requires_config", fields: ["api_key"] }],
     links: {
       models: {
-        label: "Available models",
+        label: AVAILABLE_MODELS_LABEL,
         url: "https://www.alibabacloud.com/help/en/model-studio/real-time-speech-recognition-user-guide",
       },
       setup: {
-        label: "API setup",
+        label: API_SETUP_LABEL,
         url: "https://www.alibabacloud.com/help/en/model-studio/get-api-key",
       },
     },
@@ -556,11 +590,11 @@ const _PROVIDERS = [
     requirements: [{ kind: "requires_config", fields: ["api_key"] }],
     links: {
       models: {
-        label: "Available models",
+        label: AVAILABLE_MODELS_LABEL,
         url: "https://docs.z.ai/guides/audio/glm-asr-2512",
       },
       setup: {
-        label: "API setup",
+        label: API_SETUP_LABEL,
         url: "https://docs.z.ai/api-reference/introduction",
       },
     },
@@ -576,11 +610,11 @@ const _PROVIDERS = [
     requirements: [{ kind: "requires_config", fields: ["api_key"] }],
     links: {
       models: {
-        label: "Available models",
+        label: AVAILABLE_MODELS_LABEL,
         url: "https://docs.siliconflow.com/en/api-reference/audio/create-audio-transcriptions",
       },
       setup: {
-        label: "API setup",
+        label: API_SETUP_LABEL,
         url: "https://docs.siliconflow.com/en/userguide/quickstart",
       },
     },
@@ -596,11 +630,11 @@ const _PROVIDERS = [
     requirements: [{ kind: "requires_config", fields: ["api_key"] }],
     links: {
       models: {
-        label: "Available models",
+        label: AVAILABLE_MODELS_LABEL,
         url: "https://console.groq.com/docs/speech-to-text",
       },
       setup: {
-        label: "API setup",
+        label: API_SETUP_LABEL,
         url: "https://console.groq.com/keys",
       },
     },
@@ -616,11 +650,11 @@ const _PROVIDERS = [
     requirements: [{ kind: "requires_config", fields: ["api_key"] }],
     links: {
       models: {
-        label: "Available models",
+        label: AVAILABLE_MODELS_LABEL,
         url: "https://docs.x.ai/developers/model-capabilities/audio/speech-to-text",
       },
       setup: {
-        label: "API setup",
+        label: API_SETUP_LABEL,
         url: "https://console.x.ai/",
       },
     },
@@ -636,11 +670,11 @@ const _PROVIDERS = [
     requirements: [{ kind: "requires_config", fields: ["api_key"] }],
     links: {
       models: {
-        label: "Available models",
+        label: AVAILABLE_MODELS_LABEL,
         url: "https://docs.together.ai/docs/inference-transcription",
       },
       setup: {
-        label: "API setup",
+        label: API_SETUP_LABEL,
         url: "https://api.together.ai/settings/api-keys",
       },
     },
@@ -661,11 +695,11 @@ const _PROVIDERS = [
     requirements: [{ kind: "requires_config", fields: ["api_key"] }],
     links: {
       models: {
-        label: "Available models",
+        label: AVAILABLE_MODELS_LABEL,
         url: "https://docs.speechmatics.com/speech-to-text/batch/quickstart",
       },
       setup: {
-        label: "API setup",
+        label: API_SETUP_LABEL,
         url: "https://portal.speechmatics.com/settings/api-keys",
       },
     },
@@ -683,11 +717,11 @@ const _PROVIDERS = [
     ],
     links: {
       models: {
-        label: "Available models",
+        label: AVAILABLE_MODELS_LABEL,
         url: "https://learn.microsoft.com/azure/ai-services/speech-service/fast-transcription-create",
       },
       setup: {
-        label: "API setup",
+        label: API_SETUP_LABEL,
         url: "https://learn.microsoft.com/azure/ai-services/speech-service/get-started-speech-to-text",
       },
     },
@@ -703,11 +737,11 @@ const _PROVIDERS = [
     requirements: [{ kind: "requires_config", fields: ["api_key"] }],
     links: {
       models: {
-        label: "Available models",
+        label: AVAILABLE_MODELS_LABEL,
         url: "https://cloud.google.com/speech-to-text/docs/transcription-model",
       },
       setup: {
-        label: "API setup",
+        label: API_SETUP_LABEL,
         url: "https://cloud.google.com/speech-to-text/docs/authentication",
       },
     },
@@ -723,11 +757,11 @@ const _PROVIDERS = [
     requirements: [{ kind: "requires_config", fields: ["api_key"] }],
     links: {
       models: {
-        label: "Available models",
+        label: AVAILABLE_MODELS_LABEL,
         url: "https://ai.google.dev/gemini-api/docs/models",
       },
       setup: {
-        label: "API setup",
+        label: API_SETUP_LABEL,
         url: "https://aistudio.google.com/api-keys",
       },
     },
@@ -745,11 +779,11 @@ const _PROVIDERS = [
     ],
     links: {
       models: {
-        label: "Available models",
+        label: AVAILABLE_MODELS_LABEL,
         url: "https://docs.aws.amazon.com/transcribe/latest/dg/how-it-works.html",
       },
       setup: {
-        label: "API setup",
+        label: API_SETUP_LABEL,
         url: "https://docs.aws.amazon.com/transcribe/latest/dg/getting-started-http-websocket.html",
       },
     },
@@ -765,11 +799,11 @@ const _PROVIDERS = [
     requirements: [{ kind: "requires_config", fields: ["api_key"] }],
     links: {
       models: {
-        label: "Available models",
+        label: AVAILABLE_MODELS_LABEL,
         url: "https://docs.rev.ai/api/asynchronous/get-started",
       },
       setup: {
-        label: "API setup",
+        label: API_SETUP_LABEL,
         url: "https://www.rev.ai/access_token",
       },
     },
@@ -785,11 +819,11 @@ const _PROVIDERS = [
     requirements: [{ kind: "requires_config", fields: ["api_key"] }],
     links: {
       models: {
-        label: "Available models",
+        label: AVAILABLE_MODELS_LABEL,
         url: "https://docs.cartesia.ai/api-reference/stt/transcribe",
       },
       setup: {
-        label: "API setup",
+        label: API_SETUP_LABEL,
         url: "https://play.cartesia.ai/keys",
       },
     },
@@ -807,11 +841,11 @@ const _PROVIDERS = [
     ],
     links: {
       models: {
-        label: "Available models",
+        label: AVAILABLE_MODELS_LABEL,
         url: "https://developers.cloudflare.com/workers-ai/models/nova-3/",
       },
       setup: {
-        label: "API setup",
+        label: API_SETUP_LABEL,
         url: "https://developers.cloudflare.com/workers-ai/",
       },
     },
@@ -827,11 +861,11 @@ const _PROVIDERS = [
     requirements: [{ kind: "requires_config", fields: ["api_key"] }],
     links: {
       models: {
-        label: "Available models",
+        label: AVAILABLE_MODELS_LABEL,
         url: "https://docs.gladia.io/",
       },
       setup: {
-        label: "API setup",
+        label: API_SETUP_LABEL,
         url: "https://app.gladia.io/",
       },
     },
@@ -853,11 +887,11 @@ const _PROVIDERS = [
     requirements: [{ kind: "requires_config", fields: ["api_key"] }],
     links: {
       models: {
-        label: "Available models",
+        label: AVAILABLE_MODELS_LABEL,
         url: "https://soniox.com/docs/stt/models",
       },
       setup: {
-        label: "API setup",
+        label: API_SETUP_LABEL,
         url: "https://console.soniox.com/",
       },
     },
@@ -873,11 +907,11 @@ const _PROVIDERS = [
     requirements: [{ kind: "requires_config", fields: ["api_key"] }],
     links: {
       models: {
-        label: "Available models",
+        label: AVAILABLE_MODELS_LABEL,
         url: "https://elevenlabs.io/docs/capabilities/speech-to-text",
       },
       setup: {
-        label: "API setup",
+        label: API_SETUP_LABEL,
         url: "https://elevenlabs.io/app/settings/api-keys",
       },
     },
@@ -893,11 +927,11 @@ const _PROVIDERS = [
     requirements: [{ kind: "requires_config", fields: ["api_key"] }],
     links: {
       models: {
-        label: "Available models",
+        label: AVAILABLE_MODELS_LABEL,
         url: "https://docs.mistral.ai/capabilities/audio/",
       },
       setup: {
-        label: "API setup",
+        label: API_SETUP_LABEL,
         url: "https://console.mistral.ai/api-keys",
       },
     },
@@ -918,11 +952,11 @@ const _PROVIDERS = [
     requirements: [{ kind: "requires_config", fields: ["api_key"] }],
     links: {
       models: {
-        label: "Available models",
+        label: AVAILABLE_MODELS_LABEL,
         url: "https://docs.pyannote.ai/",
       },
       setup: {
-        label: "API setup",
+        label: API_SETUP_LABEL,
         url: "https://dashboard.pyannote.ai/",
       },
     },
@@ -944,11 +978,11 @@ const _PROVIDERS = [
     requirements: [{ kind: "requires_config", fields: ["api_key"] }],
     links: {
       models: {
-        label: "Available models",
+        label: AVAILABLE_MODELS_LABEL,
         url: "https://aquavoice.com/avalon-api/docs",
       },
       setup: {
-        label: "API setup",
+        label: API_SETUP_LABEL,
         url: "https://app.aquavoice.com/api-dashboard",
       },
     },
@@ -964,11 +998,11 @@ const _PROVIDERS = [
     requirements: [{ kind: "requires_config", fields: ["api_key"] }],
     links: {
       models: {
-        label: "Available models",
+        label: AVAILABLE_MODELS_LABEL,
         url: "https://docs.cohere.com/docs/transcribe",
       },
       setup: {
-        label: "API setup",
+        label: API_SETUP_LABEL,
         url: "https://dashboard.cohere.com/api-keys",
       },
     },
@@ -996,11 +1030,11 @@ const _PROVIDERS = [
     requirements: [{ kind: "requires_config", fields: ["api_key"] }],
     links: {
       models: {
-        label: "Available models",
+        label: AVAILABLE_MODELS_LABEL,
         url: "https://docs.fireworks.ai/guides/querying-asr-models",
       },
       setup: {
-        label: "API setup",
+        label: API_SETUP_LABEL,
         url: "https://fireworks.ai/account/api-keys",
       },
     },

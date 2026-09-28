@@ -56,8 +56,7 @@ import { listOpenRouterModels } from "~/settings/ai/shared/list-openrouter";
 import { listUnslothModels } from "~/settings/ai/shared/list-unsloth";
 import { ModelCombobox } from "~/settings/ai/shared/model-combobox";
 import { PersistAiSelection } from "~/settings/ai/shared/persist-selection";
-import { groupProviders } from "~/settings/ai/shared/provider-groups";
-import { ProviderListToggle } from "~/settings/ai/shared/provider-list-toggle";
+import { splitLocalTopMore } from "~/settings/ai/shared/provider-groups";
 import {
   getConfiguredProviderIds,
   getConfiguredProviders,
@@ -68,13 +67,23 @@ import { setSettingValues, useSettingsReady } from "~/settings/queries";
 import { useConfigValues } from "~/shared/config";
 import { SettingsAlertToast } from "~/shared/ui/settings-alert";
 
-// Die sechs gebraeuchlichen Anbieter stehen oben, der lange Rest steckt
-// hinter "Weitere". Es wird kein Anbieter entfernt, nur einsortiert: die
-// flache Liste aus ~30 Eintraegen ist fuer Erstnutzer nicht lesbar.
-export const LLM_PRIMARY_PROVIDER_IDS = [
-  "anthropic",
-  "openai",
+// Die eingebauten, lokal laufenden Anbieter erscheinen als EINE Gruppe
+// "Local" oberhalb der Cloud-Anbieter -- dasselbe Muster wie bei der
+// Transkription, fuer mehr Uebersicht in der langen Liste (28.09.2026).
+export const LLM_LOCAL_PROVIDER_IDS = [
+  "apple_foundation",
+  "lmstudio",
+  "ollama",
+  "unsloth",
+] as const;
+
+// Feste Reihenfolge der gaengigsten Cloud-Anbieter plus dem eigenen
+// Endpunkt, direkt unter der "Local"-Gruppe. Der lange Rest steckt unter
+// "More"; es wird kein Anbieter entfernt, nur einsortiert.
+export const LLM_TOP_PROVIDER_IDS = [
   "openrouter",
+  "openai",
+  "anthropic",
   "google_generative_ai",
   "groq",
   "custom",
@@ -120,7 +129,6 @@ export function SelectProviderAndModel() {
     originModel: string | undefined;
   } | null>(null);
   const [isResolvingProvider, setIsResolvingProvider] = useState(false);
-  const [showAllProviders, setShowAllProviders] = useState(false);
 
   const { current_llm_model, current_llm_provider } = useConfigValues([
     "current_llm_model",
@@ -377,10 +385,15 @@ export function SelectProviderAndModel() {
     persistSelection(effectiveSelection.provider, model, requestId);
   };
 
-  const groups = groupProviders(providerOptions, LLM_PRIMARY_PROVIDER_IDS, {
-    selectedId: effectiveSelection.provider,
-    configuredIds: configuredProviderIds,
-  });
+  const { local, top, more } = splitLocalTopMore(
+    providerOptions,
+    LLM_LOCAL_PROVIDER_IDS,
+    LLM_TOP_PROVIDER_IDS,
+    {
+      selectedId: effectiveSelection.provider,
+      configuredIds: configuredProviderIds,
+    },
+  );
 
   return (
     <div className="flex flex-col gap-4">
@@ -412,17 +425,28 @@ export function SelectProviderAndModel() {
               <SelectValue placeholder={t`Select a provider`} />
             </SelectTrigger>
             <SelectContent>
-              {groups.primary.map((provider) => (
-                <ProviderOption
-                  key={provider.id}
-                  provider={provider}
-                  configured={
-                    configuredProviders[provider.id]?.configured ?? false
-                  }
-                />
-              ))}
-              {!showAllProviders
-                ? groups.pinned.map((provider) => (
+              {local.length > 0 ? (
+                <>
+                  <SelectGroup>
+                    <SelectLabel>{t`Local`}</SelectLabel>
+                    {local.map((provider) => (
+                      <ProviderOption
+                        key={provider.id}
+                        provider={provider}
+                        configured={
+                          configuredProviders[provider.id]?.configured ??
+                          false
+                        }
+                      />
+                    ))}
+                  </SelectGroup>
+                  <SelectSeparator />
+                </>
+              ) : null}
+              {top.length > 0 ? (
+                <SelectGroup>
+                  <SelectLabel>{t`Cloud`}</SelectLabel>
+                  {top.map((provider) => (
                     <ProviderOption
                       key={provider.id}
                       provider={provider}
@@ -430,30 +454,25 @@ export function SelectProviderAndModel() {
                         configuredProviders[provider.id]?.configured ?? false
                       }
                     />
-                  ))
-                : null}
-              {groups.others.length > 0 ? (
+                  ))}
+                </SelectGroup>
+              ) : null}
+              {more.length > 0 ? (
                 <>
                   <SelectSeparator />
-                  <ProviderListToggle
-                    expanded={showAllProviders}
-                    onToggle={() => setShowAllProviders((value) => !value)}
-                  />
-                  {showAllProviders ? (
-                    <SelectGroup>
-                      <SelectLabel>{t`More providers`}</SelectLabel>
-                      {groups.others.map((provider) => (
-                        <ProviderOption
-                          key={provider.id}
-                          provider={provider}
-                          configured={
-                            configuredProviders[provider.id]?.configured ??
-                            false
-                          }
-                        />
-                      ))}
-                    </SelectGroup>
-                  ) : null}
+                  <SelectGroup>
+                    <SelectLabel>{t`More`}</SelectLabel>
+                    {more.map((provider) => (
+                      <ProviderOption
+                        key={provider.id}
+                        provider={provider}
+                        configured={
+                          configuredProviders[provider.id]?.configured ??
+                          false
+                        }
+                      />
+                    ))}
+                  </SelectGroup>
                 </>
               ) : null}
             </SelectContent>
@@ -619,7 +638,7 @@ export function getLlmProviderStatus({
   };
 }
 
-function useConfiguredMapping(): {
+export function useConfiguredMapping(): {
   providers: Record<string, ProviderStatus>;
   isReady: boolean;
 } {

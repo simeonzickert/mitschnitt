@@ -509,6 +509,39 @@ describe("General Listener Slice", () => {
       expect(store.getState().batch[sessionId]).toBeUndefined();
     });
 
+    test("handleBatchResponse keeps the mixed-capture channel of a channel-split fallback (ZICK-330)", () => {
+      // Rust legt den Text beim Rueckfall auf Position 2 und laesst 0 und 1
+      // ohne Alternative (listener2-core, mark_unsplit_fallback).
+      const sessionId = "session-channel-split-fallback";
+      const persist = vi.fn();
+      const { handleBatchStarted, handleBatchResponse, setBatchPersist } =
+        store.getState();
+
+      handleBatchStarted(sessionId);
+      setBatchPersist(sessionId, persist);
+
+      expect(
+        handleBatchResponse(sessionId, {
+          metadata: { channel_split_fallback: "preparation_failed" },
+          results: {
+            channels: [
+              { alternatives: [] },
+              { alternatives: [] },
+              {
+                alternatives: [
+                  { transcript: "hello world", confidence: 1, words: [] },
+                ],
+              },
+            ],
+          },
+        }),
+      ).toBe(true);
+
+      const words = persist.mock.calls[0]?.[0] as Array<{ channel: number }>;
+      expect(words.length).toBeGreaterThan(0);
+      expect(words.every((word) => word.channel === 2)).toBe(true);
+    });
+
     test("handleBatchResponseStreamed replaces preview with transcript-only result", () => {
       const sessionId = "session-transcript-only-result";
       const persist = vi.fn();
@@ -2233,9 +2266,9 @@ describe("General Listener Slice", () => {
       await expect(
         store.getState().resumeAfterStop(sessionId, { timeoutMs: 30 }),
       ).resolves.toBe("blocked");
-      expect(
-        store.getState().live.postStopProcessingBySession[sessionId],
-      ).toBe(true);
+      expect(store.getState().live.postStopProcessingBySession[sessionId]).toBe(
+        true,
+      );
     });
 
     test("reports blocked immediately while another session is recording", async () => {
@@ -2301,9 +2334,9 @@ describe("General Listener Slice", () => {
 
       store.getState().finishCaptureRecoveryFinalization(sessionId);
 
-      expect(
-        store.getState().live.postStopProcessingBySession[sessionId],
-      ).toBe(true);
+      expect(store.getState().live.postStopProcessingBySession[sessionId]).toBe(
+        true,
+      );
       expect(store.getState().live.loading).toBe(true);
       expect(store.getState().live.sessionId).toBe(sessionId);
     });

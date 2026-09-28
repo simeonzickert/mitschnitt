@@ -15,6 +15,7 @@ import {
   formatSegmentStartLabel,
   renderTranscriptSegments,
 } from "~/stt/render-transcript";
+import { createSpeakerLabelResolver } from "~/stt/speaker-separation";
 
 function extractEventName(event: unknown): string | null {
   if (!event || typeof event !== "object") {
@@ -37,6 +38,7 @@ async function buildTranscript(
   humans: Array<{ id: string; name: string }>,
   participantHumanIds: string[],
   selfHumanId?: string,
+  ownerUserId?: string,
 ): Promise<Transcript | null> {
   if (transcripts.length === 0) {
     return null;
@@ -55,6 +57,13 @@ async function buildTranscript(
     return null;
   }
   const segments = await renderTranscriptSegments(request);
+  // ZICK-312: ohne Sprechertrennung kein Name vor den Zeilen, dieselbe Regel
+  // wie in der Zusammenfassung (`enhance-transform.ts`).
+  const speakerLabel = createSpeakerLabelResolver(
+    transcripts,
+    participantHumanIds,
+    selfHumanId || ownerUserId,
+  );
 
   const startedAtCandidates = transcripts.map(
     (transcript) => transcript.started_at,
@@ -65,7 +74,7 @@ async function buildTranscript(
 
   return {
     segments: segments.map((segment) => ({
-      speaker: segment.speaker_label,
+      speaker: speakerLabel(segment),
       text: segment.text,
       startLabel: formatSegmentStartLabel(segment.start_ms),
     })),
@@ -113,6 +122,7 @@ export async function hydrateSessionContext(
     humans,
     participantHumanIds,
     selfHumanId,
+    snapshot.ownerUserId || undefined,
   );
   const eventName = extractEventName(snapshot.event);
   const meetingChat = formatMeetingChatRecordsAsMarkdown(

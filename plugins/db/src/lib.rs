@@ -172,6 +172,7 @@ fn make_specta_builder<R: tauri::Runtime>() -> tauri_specta::Builder<R> {
             commands::cleanup_legacy_files,
             commands::run_legacy_import,
             commands::find_import_sources,
+            commands::has_known_import_source,
             commands::scan_import_source,
             commands::run_source_import,
             commands::get_import_run,

@@ -10,9 +10,9 @@ You need a Mac with Apple Silicon (M1 or newer) and **macOS 15 or later**. The a
 
 ## 1. Open the app for the first time
 
-1. Download `Mitschnitt-<version>-notarisiert.zip` from the [latest release](https://github.com/simeonzickert/mitschnitt/releases/latest) and unzip it.
-2. Drag **Mitschnitt** into your **Applications** folder.
-3. Double-click the app.
+1. Download `Mitschnitt-<version>.dmg` from the [latest release](https://github.com/simeonzickert/mitschnitt/releases/latest) and double-click it. The other files on that page are for automatic updates, you don't need them.
+2. In the window that opens, drag **Mitschnitt** onto the **Applications** folder.
+3. Open **Applications** and double-click Mitschnitt. You can then eject the disk image (the "Mitschnitt" drive in the Finder sidebar).
 
 The app is notarized by Apple, so macOS opens it without a warning. Later versions install themselves (see section 5).
 

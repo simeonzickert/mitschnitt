@@ -28,6 +28,7 @@ Default permissions for the plugin
 - `allow-is-supported-languages-batch`
 - `allow-suggest-providers-for-languages-batch`
 - `allow-list-documented-language-codes-batch`
+- `allow-cloud-channel-split-available`
 - `allow-extract-voiceprint-candidates`
 - `allow-promote-voiceprint-candidates`
 - `allow-cleanup-expired-voiceprint-candidates`
@@ -63,6 +64,32 @@ Enables the cleanup_expired_voiceprint_candidates command without any pre-config
 <td>
 
 Denies the cleanup_expired_voiceprint_candidates command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`transcription:allow-cloud-channel-split-available`
+
+</td>
+<td>
+
+Enables the cloud_channel_split_available command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`transcription:deny-cloud-channel-split-available`
+
+</td>
+<td>
+
+Denies the cloud_channel_split_available command without any pre-configured scope.
 
 </td>
 </tr>

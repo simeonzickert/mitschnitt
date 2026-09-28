@@ -14,7 +14,6 @@ import {
   getStepStatus,
 } from "./config";
 import { FinalSection, finishOnboarding } from "./final";
-import { FolderLocationSection } from "./folder-location";
 import { ImportSection } from "./imports";
 import { PermissionsSection } from "./permissions";
 import { OnboardingSection } from "./shared";
@@ -153,7 +152,7 @@ function OnboardingScreenContent({
           headerClassName,
         ])}
       >
-        <h1 className="font-hand text-foreground text-4xl leading-none font-semibold tracking-normal">
+        <h1 className="text-foreground text-4xl leading-none font-semibold tracking-normal">
           <Trans>Welcome to Mitschnitt</Trans>
         </h1>
       </div>
@@ -169,8 +168,8 @@ function OnboardingScreenContent({
                   Microphone and system audio are required — without them
                   Mitschnitt cannot record. macOS will ask you for each one.
                   Accessibility is optional, but without it Mitschnitt cannot
-                  read the meeting chat or post the notice that a recording
-                  has started.
+                  read the meeting chat or post the notice that a recording has
+                  started.
                 </Trans>
               ) : (
                 <Trans>
@@ -221,27 +220,20 @@ function OnboardingScreenContent({
           </OnboardingSection>
 
           <OnboardingSection
-            title={<Trans>Storage</Trans>}
-            description={
-              <Trans>Where your notes and recordings are stored</Trans>
-            }
-            completedTitle={<Trans>Storage configured</Trans>}
-            status={getStepStatus("folder-location", currentStep)}
-            onBack={goBack}
-            onNext={goNext}
-            onSkip={skipCurrentStep}
-          >
-            <FolderLocationSection onContinue={goNext} />
-          </OnboardingSection>
-
-          <OnboardingSection
             title={<Trans>Ready to go</Trans>}
             description={
-              <Trans>
-                Mitschnitt is downloading the transcription model it needs to
-                turn your recordings into text. This runs once and takes a few
-                minutes, depending on your connection.
-              </Trans>
+              currentPlatform !== "windows" ? (
+                <Trans>
+                  Mitschnitt is downloading the transcription model it needs to
+                  turn your recordings into text. This runs once and takes a few
+                  minutes, depending on your connection.
+                </Trans>
+              ) : (
+                <Trans>
+                  Choose a cloud transcription provider and enter your API key
+                  to turn recordings into text.
+                </Trans>
+              )
             }
             status={getStepStatus("final", currentStep)}
             skippable={false}

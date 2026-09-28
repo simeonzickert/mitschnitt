@@ -61,6 +61,8 @@
       "../../../LICENSE": "licenses/LICENSE-anarlog-MIT.txt",
       "../../../ATTRIBUTIONS.md": "licenses/ATTRIBUTIONS.md",
       "../../../crates/export-core/fonts/Pretendard-OFL.txt": "licenses/Pretendard-OFL.txt",
+      "../../../apps/desktop/public/fonts/Geist-OFL.txt": "licenses/Geist-OFL.txt",
+      "../../../apps/desktop/public/fonts/GeistMono-OFL.txt": "licenses/GeistMono-OFL.txt",
       "../../../licenses/LICENSE-LGPL-2.0.txt": "licenses/LICENSE-LGPL-2.0.txt",
       "../../../licenses/LICENSE-LGPL-3.0.txt": "licenses/LICENSE-LGPL-3.0.txt",
       "../../../licenses/LICENSE-GPL-3.0.txt": "licenses/LICENSE-GPL-3.0.txt",

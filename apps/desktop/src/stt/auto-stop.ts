@@ -1,3 +1,5 @@
+import { t } from "@lingui/core/macro";
+
 import { commands as notificationCommands } from "@anlg/plugin-notification";
 import { parseEventInstant } from "@anlg/utils";
 
@@ -169,14 +171,14 @@ export async function showMeetingEndedPrompt({
 
   await notificationCommands.showNotification({
     key: createAutoStopEndedNotificationKey(sessionId),
-    title: "Did your meeting end?",
-    message: `Mitschnitt will stop listening in ${AUTO_STOP_CONFIRM_TIMEOUT_SECONDS} seconds.`,
+    title: t`Did your meeting end?`,
+    message: t`Mitschnitt will stop listening in ${AUTO_STOP_CONFIRM_TIMEOUT_SECONDS} seconds.`,
     timeout: { secs: AUTO_STOP_CONFIRM_TIMEOUT_SECONDS, nanos: 0 },
     source: null,
     start_time: null,
     participants: null,
     event_details: null,
-    action_label: "Stop",
+    action_label: t`Stop`,
     action_variant: "destructive",
     options: null,
     footer: null,

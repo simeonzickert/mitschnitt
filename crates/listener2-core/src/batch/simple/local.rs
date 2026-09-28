@@ -132,8 +132,7 @@ pub(super) const SONIQO_DIARIZATION_CHUNK_SAMPLES: usize = TARGET_SAMPLE_RATE as
 /// Darunter wird es dem vorhergehenden Abschnitt zugeschlagen. Ein
 /// Zwei-Minuten-Rest traegt keine belastbare Stimme, und sein Schwerpunkt
 /// wuerde beim Zusammenfuehren eher verwechseln als zuordnen.
-pub(super) const SONIQO_DIARIZATION_MIN_TAIL_SAMPLES: usize =
-    TARGET_SAMPLE_RATE as usize * 5 * 60;
+pub(super) const SONIQO_DIARIZATION_MIN_TAIL_SAMPLES: usize = TARGET_SAMPLE_RATE as usize * 5 * 60;
 pub(super) const SONIQO_PROGRESS_PLANNED: f64 = 0.05;
 /// Ende des Bandes, das der Sprechertrennung gehoert.
 ///
@@ -1057,14 +1056,14 @@ impl Iterator for FixedSoniqoFileChunkIterator {
     }
 }
 
-struct SpeechSoniqoFileChunkIterator {
+pub(super) struct SpeechSoniqoFileChunkIterator {
     chunks: Pin<Box<dyn Stream<Item = Result<AudioChunk, anlg_audio_chunking::Error>>>>,
     async_runtime: tokio::runtime::Handle,
     _file: tempfile::NamedTempFile,
 }
 
 impl SpeechSoniqoFileChunkIterator {
-    fn new(
+    pub(super) fn new(
         file: tempfile::NamedTempFile,
         async_runtime: &tokio::runtime::Handle,
     ) -> std::result::Result<Self, String> {
@@ -2157,6 +2156,10 @@ fn diarize_soniqo_channel_file(
 ) -> std::result::Result<ChannelDiarization, String> {
     ensure_local_batch_running(progress)?;
     ensure_soniqo_diarization_within_limit(channel.sample_count)?;
+    // Hoechstens EINE Soniqo-Trennung im Prozess (Forge-Zweitblick B1): jede
+    // haelt einen Kanal im Speicher und CoreML mehrere GB.
+    let _slot = soniqo_diarization_slot();
+    ensure_local_batch_running(progress)?;
     let mut reader = hound::WavReader::open(channel.file.path()).map_err(|e| e.to_string())?;
     let samples = reader
         .samples::<f32>()
@@ -2290,6 +2293,19 @@ fn diarize_soniqo_channel_file(
         segments,
         failed_reason,
     })
+}
+
+static SONIQO_DIARIZATION_SLOT: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+/// Der eine Platz fuer eine Soniqo-Trennung im ganzen Prozess -- fuer den
+/// lokalen Weg UND die Systemkanal-Trennung des Cloud-Wegs
+/// (`system_diarization.rs`). Vier gleichzeitige Batch-Sitzungen erlaubt das
+/// Plugin; vier Trennungen zugleich waeren vier Mal mehrere GB CoreML-Speicher.
+/// Blockierend, gehoert in einen Blocking-Thread.
+pub(super) fn soniqo_diarization_slot() -> std::sync::MutexGuard<'static, ()> {
+    SONIQO_DIARIZATION_SLOT
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
 pub(super) fn ensure_soniqo_diarization_within_limit(

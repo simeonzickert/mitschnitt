@@ -16,6 +16,14 @@ export type MeetingImportProvider = {
   nativeNames?: string[];
   bundleIds?: string[];
   alwaysAvailable?: boolean;
+  /**
+   * Nur fuer den markenlosen Ordner-Import gesetzt: das Nomen, mit dem der
+   * Dialog von "der Quelle" spricht ("Choose the folder that {dialogSubject}
+   * keeps its data in."). Fuer alle anderen Eintraege ist `name` selbst
+   * dieses Nomen (ein Markenname wie "Granola" passt an dieser Stelle im
+   * Satz), deshalb bleibt das Feld dort weg.
+   */
+  dialogSubject?: string;
 };
 
 export type DetectedMeetingImportProvider = MeetingImportProvider & {
@@ -29,19 +37,37 @@ export const MEETING_IMPORT_PROVIDERS: MeetingImportProvider[] = [
   // Namensregel in AGENTS.md verbietet die Marke als SELBSTbezeichnung dieses
   // Forks, nicht als Bezeichnung der Quelle, aus der importiert wird.
   //
-  // `alwaysAvailable`, weil ein kopierter Datenordner von einem anderen Rechner
-  // der Regelfall ist: der Kollege bringt einen Ordner mit, die App selbst ist
-  // auf diesem Rechner nie installiert gewesen. Eine Zeile, die nur bei
-  // installierter Fremd-App erscheint, waere fuer genau diesen Menschen unsichtbar.
+  // Kein `alwaysAvailable`, keine `nativeNames`/`bundleIds`: dieser Eintrag
+  // nimmt an der gewoehnlichen Erkennung ueber installierte Apps gar nicht
+  // teil. Ein installiertes `com.hyprnote.stable` sagt nichts ueber Daten aus
+  // -- gemessen enthaelt es manchmal nur `auth.json` (siehe scan.rs). Die
+  // einzige Instanz, die entscheidet, ob diese Zeile erscheint, ist die
+  // Selbstsuche in `detection.ts` (`findImportSources`): sie durchsucht die
+  // bekannten Ordner nach echten Gespraechen und blendet die Zeile nur dann
+  // ein. Wer nie einen solchen Ordner hatte, sieht sie nie -- auch nicht im
+  // Onboarding.
   {
     id: "anarlog",
     name: "anarlog / Hyprnote",
     access: "Folder",
-    helpUrl: "https://github.com/fastrepl/hyprnote",
+    helpUrl: "",
     folderImport: true,
-    nativeNames: ["anarlog", "Hyprnote"],
-    bundleIds: ["com.hyprnote.stable", "com.hyprnote.dev", "hyprnote"],
+  },
+  // Ohne Marke, immer da (S2, Orchestrator 26.09.2026): der Kollege, der einen
+  // kopierten Ordner auf einem USB-Stick mitbringt, braucht einen Weg hinein,
+  // auch wenn die Selbstsuche nichts findet -- sie kennt nur die Ordnernamen
+  // bekannter Apps (scan.rs BEKANNTE_ORDNERNAMEN), keinen beliebigen Ordner.
+  // `name` ist hier ausnahmsweise ein Satz, kein Markenname, und wird in
+  // screen.tsx eigens uebersetzt (t`Import from folder…`), nicht ueber dieses
+  // Feld -- dieselbe Ausnahme gilt fuer `dialogSubject` unten.
+  {
+    id: "import-folder",
+    name: "Import from folder…",
+    access: "Folder",
+    helpUrl: "",
+    folderImport: true,
     alwaysAvailable: true,
+    dialogSubject: "your other app",
   },
   {
     id: "granola",

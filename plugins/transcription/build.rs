@@ -23,6 +23,7 @@ const COMMANDS: &[&str] = &[
     "is_supported_languages_batch",
     "suggest_providers_for_languages_batch",
     "list_documented_language_codes_batch",
+    "cloud_channel_split_available",
     "extract_voiceprint_candidates",
     "promote_voiceprint_candidates",
     "cleanup_expired_voiceprint_candidates",

@@ -190,6 +190,71 @@ async fn a_nameless_participant_does_not_produce_an_empty_speaker_label() {
     assert!(transcript.contains("[00:00:00] You"), "{transcript}");
 }
 
+/// ZICK-312 im Spiegel: ein Cloud-Transkript von vor dem Kanal-Weg liegt
+/// ganz auf Kanal 0. Mit einem zweiten Teilnehmer darf keine Zeile den Namen
+/// des Nutzers tragen -- ausser dem Block, den er von Hand zugeordnet hat.
+#[tokio::test]
+async fn an_unseparated_transcript_names_nobody_but_hand_assigned_blocks() {
+    let db = test_db().await;
+    let temp = tempfile::tempdir().unwrap();
+    let paths = paths(temp.path());
+
+    insert_session(db.pool(), "s1", "Cloud alt", "2026-05-05T08:00:00Z").await;
+    let words = serde_json::json!([
+        {"id": "w1", "text": " Moin", "start_ms": 0, "end_ms": 500, "channel": 0},
+        {"id": "w2", "text": " zusammen.", "start_ms": 500, "end_ms": 1000, "channel": 0},
+        {"id": "w3", "text": " Hallo", "start_ms": 90000, "end_ms": 90500, "channel": 0},
+        {"id": "w4", "text": " Max.", "start_ms": 90500, "end_ms": 91000, "channel": 0}
+    ])
+    .to_string();
+    let hints = serde_json::json!([
+        {"word_id": "w3", "type": "user_speaker_assignment",
+         "value": {"human_id": "h2", "scope": "segment", "word_ids": ["w3", "w4"]}}
+    ])
+    .to_string();
+    sqlx::query(
+        "INSERT INTO transcripts
+         (id, session_id, source, provider, model, started_at_ms, words_json,
+          speaker_hints_json, metadata_json, owner_user_id, updated_at, created_at)
+         VALUES ('t1', 's1', 'batch_transcription', 'openai', 'gpt-transcribe', 0, ?,
+                 ?, '{}', 'h1', '2026-05-05T08:00:00Z', '2026-05-05T08:00:00Z')",
+    )
+    .bind(words)
+    .bind(hints)
+    .execute(db.pool())
+    .await
+    .unwrap();
+    sqlx::query("INSERT INTO humans (id, name) VALUES ('h1', 'Alex'), ('h2', 'Max')")
+        .execute(db.pool())
+        .await
+        .unwrap();
+    sqlx::query(
+        "INSERT INTO session_participants (id, session_id, human_id, source)
+         VALUES ('p1', 's1', 'h1', 'manual'), ('p2', 's1', 'h2', 'manual')",
+    )
+    .execute(db.pool())
+    .await
+    .unwrap();
+
+    sync_session(db.pool(), &paths, "s1", false, &RecorderView::Unavailable)
+        .await
+        .unwrap();
+    let transcript = read(&only_mirror_dir(&paths.root).join(TRANSCRIPT_FILE));
+
+    assert!(
+        transcript.contains("[00:00:00] Unknown speaker"),
+        "ungetrennter Block traegt einen Namen:\n{transcript}"
+    );
+    assert!(
+        !transcript.contains("] Alex"),
+        "Nutzername vor ungetrennter Zeile:\n{transcript}"
+    );
+    assert!(
+        transcript.contains("[00:01:30] Max"),
+        "Handzuordnung verloren:\n{transcript}"
+    );
+}
+
 #[tokio::test]
 async fn an_unchanged_session_is_not_rewritten() {
     let db = test_db().await;
@@ -981,9 +1046,7 @@ async fn a_stored_root_setting_is_read_as_a_path() {
 
     assert_eq!(
         read_root_setting(db.pool()).await.unwrap(),
-        Some(std::path::PathBuf::from(
-            "/Users/mads/Nextcloud/Mitschnitt"
-        ))
+        Some(std::path::PathBuf::from("/Users/mads/Nextcloud/Mitschnitt"))
     );
 }
 

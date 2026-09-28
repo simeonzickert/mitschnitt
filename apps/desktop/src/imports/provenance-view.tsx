@@ -1,4 +1,4 @@
-import { Trans } from "@lingui/react/macro";
+import { Trans, useLingui } from "@lingui/react/macro";
 import { Clock, DownloadSimple } from "@phosphor-icons/react";
 
 import { safeFormat, safeParseDate } from "@anlg/utils";
@@ -46,13 +46,14 @@ export function ImportedMarker({
   sourceApp: string | null;
   importedAt: string | null;
 }) {
+  const { t } = useLingui();
   const source = importSourceLabel(sourceApp);
   const day = formatImportedAt(importedAt);
   const title = source
     ? day
-      ? `Imported from ${source} on ${day}`
-      : `Imported from ${source}`
-    : "Imported";
+      ? t`Imported from ${source} on ${day}`
+      : t`Imported from ${source}`
+    : t`Imported`;
 
   return (
     <span

@@ -7,6 +7,7 @@
 // model-gate.ts.
 
 import { useQuery } from "@tanstack/react-query";
+import { platform } from "@tauri-apps/plugin-os";
 import { useEffect, useRef, useState } from "react";
 
 import {
@@ -45,6 +46,7 @@ export function useOnboardingModelGate(): {
   // getippt, das ist bereits Teil der LocalModel-Union (SoniqoModel in
   // bindings.gen.ts) -- kein Cast noetig.
   const model = LOCAL_STT_DEFAULT_SELECTION.model;
+  const canUseLocalModel = platform() !== "windows";
 
   const {
     progress,
@@ -73,11 +75,11 @@ export function useOnboardingModelGate(): {
   // isDownloading meint. Der blosse isDownloading.data-Wert aus der Abfrage
   // haette eine Luecke zwischen Klick und dem ersten Nachziehen der Abfrage.
   const gateInput = {
-    isDownloaded,
-    isDownloadedLoading,
-    isDownloading: showProgress,
+    isDownloaded: canUseLocalModel && isDownloaded,
+    isDownloadedLoading: canUseLocalModel && isDownloadedLoading,
+    isDownloading: canUseLocalModel && showProgress,
     progress,
-    errorMessage,
+    errorMessage: canUseLocalModel ? errorMessage : null,
     retryCount,
     cloudProviderReady,
   };
@@ -92,7 +94,7 @@ export function useOnboardingModelGate(): {
   // || isStarting, siehe useLocalSttModel.ts). Der Effekt darf also bei jedem
   // Render neu pruefen, ohne dass daraus ein zweiter Download entstehen kann.
   useEffect(() => {
-    if (shouldStartModelDownload(gateInput)) {
+    if (canUseLocalModel && shouldStartModelDownload(gateInput)) {
       handleDownload();
     }
     // Deps bewusst ohne "progress": shouldStartModelDownload haengt nicht
@@ -105,6 +107,7 @@ export function useOnboardingModelGate(): {
     errorMessage,
     retryCount,
     cloudProviderReady,
+    canUseLocalModel,
     handleDownload,
   ]);
 
@@ -115,14 +118,19 @@ export function useOnboardingModelGate(): {
   const hasSetProviderRef = useRef(false);
   const setSelection = useSetSettingValues();
   useEffect(() => {
-    if (isDownloaded && !current_stt_provider && !hasSetProviderRef.current) {
+    if (
+      canUseLocalModel &&
+      isDownloaded &&
+      !current_stt_provider &&
+      !hasSetProviderRef.current
+    ) {
       hasSetProviderRef.current = true;
       setSelection({
         current_stt_provider: LOCAL_STT_DEFAULT_SELECTION.provider,
         current_stt_model: LOCAL_STT_DEFAULT_SELECTION.model,
       });
     }
-  }, [isDownloaded, current_stt_provider, setSelection]);
+  }, [canUseLocalModel, isDownloaded, current_stt_provider, setSelection]);
 
   // handleDownload leert errorMessage synchron bei jedem Aufruf (die erste
   // Zeile in useLocalSttModel.ts' handleDownload ist setErrorMessage(null),

@@ -121,6 +121,15 @@ export async function findImportSources(): Promise<ImportSourceScan[]> {
   return invoke("plugin:db|find_import_sources");
 }
 
+/**
+ * Billige Ja/Nein-Frage fuer die Sichtbarkeit einer UI-Zeile (S3, Orchestrator
+ * 26.09.2026) -- ohne Datenbank-Pool und ohne die teure Pruefung, die
+ * `findImportSources` je Fund macht.
+ */
+export async function hasKnownImportSource(): Promise<boolean> {
+  return invoke("plugin:db|has_known_import_source");
+}
+
 export async function scanImportSource(
   sourcePath: string,
 ): Promise<ImportSourceScan> {

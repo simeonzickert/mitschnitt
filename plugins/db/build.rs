@@ -11,6 +11,7 @@ const COMMANDS: &[&str] = &[
     "cleanup_legacy_files",
     "run_legacy_import",
     "find_import_sources",
+    "has_known_import_source",
     "scan_import_source",
     "run_source_import",
     "get_import_run",

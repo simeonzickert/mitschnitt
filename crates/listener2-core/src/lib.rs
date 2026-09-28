@@ -10,7 +10,8 @@ pub use vocabulary::set_vocabulary_options;
 
 pub use batch::{
     BatchParams, BatchProvider, BatchRunMode, BatchRunOutput, SoniqoChunkingMode, SoniqoTuning,
-    expects_progressive_batch, run_batch, seconds_to_samples, set_soniqo_tuning, soniqo_tuning,
+    cloud_channel_split_available, expects_progressive_batch, run_batch, seconds_to_samples,
+    set_soniqo_tuning, soniqo_tuning,
 };
 pub use denoise::{DenoiseParams, run_denoise};
 pub use error::*;

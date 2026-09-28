@@ -118,7 +118,23 @@ export function ParticipantInput({ sessionId }: { sessionId: string }) {
   };
 
   return (
-    <div className="relative" ref={setContainerRef}>
+    <div
+      className="relative"
+      ref={setContainerRef}
+      // Fuer Dialoge/Popover, die diesen Block einsetzen: an diesem Merkmal
+      // laesst sich -- gescoped auf den EIGENEN Dialog-Inhalt -- erkennen, ob
+      // GENAU DIESE Vorschlagsliste offen ist, ohne ihren internen State zu
+      // kennen. Anders als das Merkmal an der (portalierten, also nie ein
+      // DOM-Nachkomme des Dialogs) Liste selbst (`dropdown.tsx`
+      // `data-participant-suggestions`) sitzt dieses hier an der
+      // Eingabezeile, die ein echter DOM-Nachkomme bleibt -- damit eine
+      // gescopte Abfrage (`dialogRef.current?.querySelector(...)`) sie
+      // ueberhaupt finden kann. Genutzt vom Nachfrage-Dialog fuer die
+      // Escape-Weiche, siehe dessen Kommentar.
+      data-participant-suggestions-open={
+        showDropdown && inputValue.trim() ? "" : undefined
+      }
+    >
       <div
         className="flex min-h-[38px] w-full cursor-text flex-wrap items-center gap-2"
         onClick={() => inputRef.current?.focus()}

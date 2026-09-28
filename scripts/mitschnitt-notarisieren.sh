@@ -117,13 +117,16 @@ xcrun stapler validate "$APP"
 spctl -a -vv -t exec "$APP" 2>&1 | grep -q "Notarized Developer ID" \
   || { echo "FEHLER: spctl meldet kein 'Notarized Developer ID'." >&2; exit 1; }
 
-log "Release-Zip"
-mkdir -p "$OUT_DIR"
-REL="$OUT_DIR/Mitschnitt-$VERSION-notarisiert.zip"
-ditto -c -k --keepParent "$APP" "$REL"
-ls -la "$REL"
-
+# Seit 0.1.7 (ZICK-329) gibt mitschnitt-release.sh Menschen eine DMG statt
+# dieses Zips und setzt deshalb MITSCHNITT_NOTAR_KEIN_ZIP=1. Allein aufgerufen
+# (Weitergabe von Hand) bleibt das Zip der Standard.
 log "Fertig"
 echo "Notarisierte Kopie: $APP"
-echo "Zum Weitergeben:    $REL"
+if [ "${MITSCHNITT_NOTAR_KEIN_ZIP:-0}" != "1" ]; then
+  mkdir -p "$OUT_DIR"
+  REL="$OUT_DIR/Mitschnitt-$VERSION-notarisiert.zip"
+  ditto -c -k --keepParent "$APP" "$REL"
+  ls -la "$REL"
+  echo "Zum Weitergeben:    $REL"
+fi
 echo "Einspielen: altes Bundle beiseite, dann  cp -R \"$APP\" \"$SRC\""

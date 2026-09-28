@@ -6,6 +6,7 @@ mod tray_icon;
 
 use std::sync::atomic::{AtomicBool, Ordering};
 
+pub use anlg_menu_lang::{Lang, Text, resolve_lang, tr, tr_fmt};
 pub use ext::*;
 pub use menu_items::{AnlgMenuItem, UpdateMenuState, handle_agenda_menu_event, quit_completely};
 
@@ -75,6 +76,7 @@ fn make_specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::set_tray_icon_visible,
             commands::set_tray_schedule,
             commands::set_tray_recording_title,
+            commands::set_tray_menu_language,
         ])
         .error_handling(tauri_specta::ErrorHandlingMode::Result)
 }

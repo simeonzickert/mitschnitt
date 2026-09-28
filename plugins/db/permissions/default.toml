@@ -14,6 +14,7 @@ permissions = [
   "allow-cleanup-legacy-files",
   "allow-run-legacy-import",
   "allow-find-import-sources",
+  "allow-has-known-import-source",
   "allow-scan-import-source",
   "allow-run-source-import",
   "allow-get-import-run",

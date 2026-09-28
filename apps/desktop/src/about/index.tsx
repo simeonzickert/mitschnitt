@@ -30,6 +30,7 @@ function Link({ href, children }: { href: string; children: React.ReactNode }) {
 }
 
 function NachweisTabelle({ eintraege }: { eintraege: Nachweis[] }) {
+  const { i18n } = useLingui();
   return (
     <div className="border-border divide-border divide-y rounded-lg border">
       {eintraege.map((e) => (
@@ -41,10 +42,12 @@ function NachweisTabelle({ eintraege }: { eintraege: Nachweis[] }) {
             <div className="font-medium">
               {e.url ? <Link href={e.url}>{e.name}</Link> : e.name}
             </div>
-            <div className="text-muted-foreground text-xs">{e.zweck}</div>
+            <div className="text-muted-foreground text-xs">
+              {i18n._(e.zweck)}
+            </div>
           </div>
           <div className="text-muted-foreground shrink-0 text-xs">
-            {e.lizenz}
+            {i18n._(e.lizenz)}
           </div>
         </div>
       ))}

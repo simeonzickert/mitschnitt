@@ -169,6 +169,204 @@ describe("enhanceTransform.transformArgs", () => {
     ]);
   });
 
+  describe("ZICK-312: Namen nur bei echter Sprechertrennung", () => {
+    const renderedSegments = [
+      {
+        speaker_label: "Alex",
+        text: "Das machen wir so",
+        start_ms: 1_000,
+        end_ms: 2_000,
+        words: [{ text: "Das", start_ms: 1_000, end_ms: 1_400 }],
+      },
+      {
+        speaker_label: "Alex",
+        text: "Ich schicke das Montag",
+        start_ms: 3_000,
+        end_ms: 4_000,
+        words: [{ text: "Ich", start_ms: 3_000, end_ms: 3_400 }],
+      },
+    ];
+
+    function snapshotWith(
+      words: Array<{ id: string; channel?: number }>,
+      speakerHints: Array<{
+        id: string;
+        word_id: string;
+        type: string;
+        value: string;
+      }> = [],
+    ) {
+      const snapshot = createSnapshot();
+      snapshot.transcripts[0] = {
+        ...snapshot.transcripts[0]!,
+        words: words.map((word) => ({
+          ...word,
+          text: "x",
+          start_ms: 0,
+          end_ms: 1,
+        })) as never,
+        speaker_hints: speakerHints as never,
+      };
+      return snapshot;
+    }
+
+    beforeEach(() => {
+      mocks.buildRenderTranscriptRequestFromRows.mockReturnValue({
+        transcripts: [],
+        participant_human_ids: [],
+        self_human_id: "user-1",
+        humans: [],
+      });
+      mocks.renderTranscriptSegments.mockResolvedValue(renderedSegments);
+    });
+
+    it("nimmt ohne Trennung jeden Namen aus den Zeilen", async () => {
+      // Cloud-Transkript: alle Woerter auf Kanal 0, kein Sprecherhinweis. Die
+      // Anzeige etikettiert das als den Nutzer selbst; im Prompt waere das
+      // eine Zuschreibung, die es nicht gibt.
+      mocks.loadSessionContentSnapshot.mockResolvedValue(
+        snapshotWith([
+          { id: "w1", channel: 0 },
+          { id: "w2", channel: 0 },
+        ]),
+      );
+
+      const result = await enhanceTransform.transformArgs(
+        { sessionId: "session-1", enhancedNoteId: "note-1" },
+        settingsValues,
+      );
+
+      const speakers = result.transcripts[0]?.segments.map((s) => s.speaker);
+      expect(speakers).toEqual(["Unknown speaker", "Unknown speaker"]);
+      expect(speakers).not.toContain("Alex");
+    });
+
+    it("behaelt die Namen, wenn Mikrofon und Systemton getrennt sind", async () => {
+      mocks.loadSessionContentSnapshot.mockResolvedValue(
+        snapshotWith([
+          { id: "w1", channel: 0 },
+          { id: "w2", channel: 1 },
+        ]),
+      );
+
+      const result = await enhanceTransform.transformArgs(
+        { sessionId: "session-1", enhancedNoteId: "note-1" },
+        settingsValues,
+      );
+
+      expect(result.transcripts[0]?.segments.map((s) => s.speaker)).toEqual([
+        "Alex",
+        "Alex",
+      ]);
+    });
+
+    it("behaelt die Namen, wenn der Anbieter mehrere Sprecher getrennt hat", async () => {
+      mocks.loadSessionContentSnapshot.mockResolvedValue(
+        snapshotWith(
+          [
+            { id: "w1", channel: 0 },
+            { id: "w2", channel: 0 },
+          ],
+          [
+            {
+              id: "h1",
+              word_id: "w1",
+              type: "provider_speaker_index",
+              value: JSON.stringify({ channel: 0, speaker_index: 0 }),
+            },
+            {
+              id: "h2",
+              word_id: "w2",
+              type: "provider_speaker_index",
+              value: JSON.stringify({ channel: 0, speaker_index: 1 }),
+            },
+          ],
+        ),
+      );
+
+      const result = await enhanceTransform.transformArgs(
+        { sessionId: "session-1", enhancedNoteId: "note-1" },
+        settingsValues,
+      );
+
+      expect(result.transcripts[0]?.segments[0]?.speaker).toBe("Alex");
+    });
+
+    it("benennt nur den Block, den ein Mensch von Hand zugeordnet hat", async () => {
+      // Frueher schaltete eine einzige Handzuordnung ALLE Namen wieder ein.
+      mocks.renderTranscriptSegments.mockResolvedValue([
+        {
+          ...renderedSegments[0]!,
+          words: [{ id: "w1", text: "Das", start_ms: 1_000, end_ms: 1_400 }],
+        },
+        {
+          ...renderedSegments[1]!,
+          speaker_label: "Max",
+          words: [{ id: "w2", text: "Ich", start_ms: 3_000, end_ms: 3_400 }],
+        },
+      ]);
+      mocks.loadSessionContentSnapshot.mockResolvedValue(
+        snapshotWith(
+          [
+            { id: "w1", channel: 0 },
+            { id: "w2", channel: 0 },
+          ],
+          [
+            {
+              id: "w2:user_speaker_assignment:segment",
+              word_id: "w2",
+              type: "user_speaker_assignment",
+              value: JSON.stringify({
+                human_id: "human-max",
+                scope: "segment",
+                word_ids: ["w2"],
+              }),
+            },
+          ],
+        ),
+      );
+
+      const result = await enhanceTransform.transformArgs(
+        { sessionId: "session-1", enhancedNoteId: "note-1" },
+        settingsValues,
+      );
+
+      expect(result.transcripts[0]?.segments.map((s) => s.speaker)).toEqual([
+        "Unknown speaker",
+        "Max",
+      ]);
+    });
+
+    it("nimmt Woertern ohne Kanalangabe den Namen (fail-closed, Forge M5)", async () => {
+      mocks.loadSessionContentSnapshot.mockResolvedValue(
+        snapshotWith([{ id: "w1" }, { id: "w2" }]),
+      );
+
+      const result = await enhanceTransform.transformArgs(
+        { sessionId: "session-1", enhancedNoteId: "note-1" },
+        settingsValues,
+      );
+
+      expect(result.transcripts[0]?.segments.map((s) => s.speaker)).toEqual([
+        "Unknown speaker",
+        "Unknown speaker",
+      ]);
+    });
+
+    it("laesst ein Selbstgespraech ohne andere Teilnehmer beim Nutzer", async () => {
+      const snapshot = snapshotWith([{ id: "w1", channel: 0 }]);
+      snapshot.participants = [];
+      mocks.loadSessionContentSnapshot.mockResolvedValue(snapshot);
+
+      const result = await enhanceTransform.transformArgs(
+        { sessionId: "session-1", enhancedNoteId: "note-1" },
+        settingsValues,
+      );
+
+      expect(result.transcripts[0]?.segments[0]?.speaker).toBe("Alex");
+    });
+  });
+
   it("includes the detected meeting platform in generated context", async () => {
     mocks.loadSessionContentSnapshot.mockResolvedValue({
       ...createSnapshot(),

@@ -11,17 +11,33 @@ describe("brauchtNachfrage", () => {
   // dann kommt, wenn die Antwort schon dasteht, wird weggeklickt und ist
   // damit wertlos.
   it("stellt keine Frage, wenn ein Kalendertermin verknuepft ist", () => {
-    expect(brauchtNachfrage({ eventId: "evt_1", event: null })).toBe(false);
+    expect(
+      brauchtNachfrage({
+        eventId: "evt_1",
+        event: null,
+        bereitsBeantwortet: false,
+      }),
+    ).toBe(false);
   });
 
   it("stellt keine Frage, wenn das Event nur im JSON steht", () => {
-    expect(brauchtNachfrage({ eventId: null, event: { id: "evt_2" } })).toBe(
-      false,
-    );
+    expect(
+      brauchtNachfrage({
+        eventId: null,
+        event: { id: "evt_2" },
+        bereitsBeantwortet: false,
+      }),
+    ).toBe(false);
   });
 
   it("fragt beim spontanen Gespraech ohne Termin", () => {
-    expect(brauchtNachfrage({ eventId: null, event: null })).toBe(true);
+    expect(
+      brauchtNachfrage({
+        eventId: null,
+        event: null,
+        bereitsBeantwortet: false,
+      }),
+    ).toBe(true);
   });
 
   it.each([
@@ -31,8 +47,35 @@ describe("brauchtNachfrage", () => {
     ["Event mit leerer id", { eventId: null, event: { id: "" } }],
     ["Event mit null-id", { eventId: null, event: { id: null } }],
   ])("wertet %s nicht als Termin", (_name, stand) => {
-    expect(hatKalendertermin(stand)).toBe(false);
-    expect(brauchtNachfrage(stand)).toBe(true);
+    const vollerStand = { ...stand, bereitsBeantwortet: false };
+    expect(hatKalendertermin(vollerStand)).toBe(false);
+    expect(brauchtNachfrage(vollerStand)).toBe(true);
+  });
+
+  // Zweiter Fall derselben Regel (26.09.2026): einmal pro Gespraech, fuer
+  // immer. Ein zweiter Stopp derselben Sitzung fragt nicht erneut, auch
+  // ohne Kalendertermin.
+  it("stellt keine Frage, wenn sie fuer diese Sitzung schon beantwortet wurde", () => {
+    expect(
+      brauchtNachfrage({
+        eventId: null,
+        event: null,
+        bereitsBeantwortet: true,
+      }),
+    ).toBe(false);
+  });
+
+  // Beide Bedingungen wirken unabhaengig voneinander -- ein Kalendertermin
+  // aendert nichts daran, dass "schon beantwortet" allein schon reicht, und
+  // umgekehrt.
+  it("bleibt bei einem Kalendertermin unabhaengig vom Beantwortet-Merker stumm", () => {
+    expect(
+      brauchtNachfrage({
+        eventId: "evt_1",
+        event: null,
+        bereitsBeantwortet: true,
+      }),
+    ).toBe(false);
   });
 });
 

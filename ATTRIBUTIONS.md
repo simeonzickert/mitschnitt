@@ -37,9 +37,12 @@ Mitschnitt is an independent fork and is not affiliated with Fastrepl, Inc.
 | --- | --- | --- | --- |
 | Pretendard | Kil Hyung-jin (incorporates parts of Adobe Source and Inter) | SIL Open Font License 1.1 | `crates/export-core/fonts/`, compiled into the binary via `include_bytes!` (PDF export). A second, currently unreferenced copy sits in `plugins/export/fonts/`. |
 | Cabin Sketch | Impallari Type | SIL Open Font License 1.1 | Windows window decoration, `plugins/windows/swift-lib/src/Resources/` |
+| Geist | Vercel, Inc. (The Geist Project Authors) | SIL Open Font License 1.1 | `apps/desktop/public/fonts/`, the app's UI typeface (sans and headings), served to the web view as static `.woff2` files. |
+| Geist Mono | Vercel, Inc. (The Geist Project Authors) | SIL Open Font License 1.1 | `apps/desktop/public/fonts/`, wherever the UI sets fixed-width type. |
 
-Both license texts sit alongside the font files and in the app bundle
-(`licenses/Pretendard-OFL.txt`, `CabinSketch-OFL.txt`).
+License texts sit alongside the font files and in the app bundle
+(`licenses/Pretendard-OFL.txt`, `licenses/Geist-OFL.txt`, `licenses/GeistMono-OFL.txt`;
+Cabin Sketch's lands at the bundle root as `CabinSketch-OFL.txt`, see `tauri.conf.json`).
 
 | Font | Rights holder | License | Where |
 | --- | --- | --- | --- |

@@ -99,3 +99,20 @@ pub async fn list_documented_language_codes_batch<R: tauri::Runtime>(
 ) -> Result<Vec<String>, String> {
     Ok(core::list_documented_language_codes_batch())
 }
+
+/// ZICK-330 Nachzug: wuerde ein neuer Lauf mit diesem Anbieter Mikrofon und
+/// Systemton trennen? Traegt den Hinweis an alten Cloud-Transkripten.
+#[tauri::command]
+#[specta::specta]
+pub async fn cloud_channel_split_available<R: tauri::Runtime>(
+    _app: tauri::AppHandle<R>,
+    provider: String,
+    model: Option<String>,
+    audio_path: String,
+) -> Result<bool, String> {
+    tokio::task::spawn_blocking(move || {
+        core::cloud_channel_split_available(&provider, model.as_deref(), &audio_path)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}

@@ -10,6 +10,7 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { ModelGateState } from "./model-gate";
 
 const mocks = vi.hoisted(() => ({
+  platform: vi.fn((): "macos" | "windows" => "macos"),
   createSession: vi.fn(),
   flushAutomaticRelaunch: vi.fn(),
   getOrCreateWelcomeSession: vi.fn(),
@@ -39,6 +40,10 @@ const mocks = vi.hoisted(() => ({
   ),
 }));
 
+vi.mock("@tauri-apps/plugin-os", () => ({
+  platform: mocks.platform,
+}));
+
 vi.mock("@anlg/plugin-opener2", () => ({
   commands: { openUrl: vi.fn() },
 }));
@@ -62,7 +67,7 @@ vi.mock("./use-model-gate", () => ({
 // wenn der Nutzer den Cloud-Umschalter aufklappt -- in keinem der vier Tests
 // hier der Fall -- aber der Import muesste sonst ihren ganzen Baum laden.
 vi.mock("~/settings/ai/stt", () => ({
-  STT: () => null,
+  STT: () => <div>Cloud STT settings</div>,
 }));
 
 vi.mock("~/session/queries", () => ({
@@ -81,6 +86,7 @@ import { FinalSection, finishOnboarding } from "./final";
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mocks.platform.mockReturnValue("macos");
   mocks.flushAutomaticRelaunch.mockResolvedValue(false);
   mocks.getOrCreateWelcomeSession.mockResolvedValue("welcome-session");
   mocks.setOnboardingNeeded.mockResolvedValue({ status: "ok", data: null });
@@ -91,6 +97,28 @@ beforeEach(() => {
     retry: vi.fn(),
     retryCount: 0,
   });
+});
+
+it("shows cloud setup instead of a local model download on Windows", () => {
+  mocks.platform.mockReturnValue("windows");
+  mocks.useOnboardingModelGate.mockReturnValue({
+    state: { kind: "idle" },
+    canFinish: false,
+    sizeBytes: null,
+    retry: vi.fn(),
+    retryCount: 0,
+  });
+
+  render(<FinalSection onContinue={vi.fn()} />);
+
+  expect(
+    screen.getByText("Choose a cloud transcription provider below."),
+  ).toBeTruthy();
+  expect(screen.getByText("Cloud STT settings")).toBeTruthy();
+  expect(screen.queryByText("Downloading the transcription model")).toBeNull();
+  expect(
+    screen.getByRole("button", { name: "Open Mitschnitt" }),
+  ).toHaveProperty("disabled", true);
 });
 
 afterEach(cleanup);
@@ -119,7 +147,12 @@ it("keeps the button locked while the model is still downloading", () => {
 
 it("offers the cloud provider way out while the button is locked", () => {
   mocks.useOnboardingModelGate.mockReturnValue({
-    state: { kind: "error" as const, message: "no network", retryCount: 3, exhausted: true },
+    state: {
+      kind: "error" as const,
+      message: "no network",
+      retryCount: 3,
+      exhausted: true,
+    },
     canFinish: false,
     sizeBytes: null,
     retry: vi.fn(),

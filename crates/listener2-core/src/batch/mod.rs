@@ -10,7 +10,11 @@ use owhisper_client::{AdapterKind, OpenAIAdapter};
 use crate::{BatchEvent, BatchRuntime};
 
 use progressive::run_progressive_batch_session;
-use simple::{run_apple_speech_batch, run_direct_batch_for_adapter_kind, run_soniqo_batch};
+use simple::{
+    ChannelSplitOutcome, adapter_splits_channels, channel_split_would_apply,
+    run_apple_speech_batch, run_channel_split_for_adapter_kind, run_direct_batch_for_adapter_kind,
+    run_soniqo_batch,
+};
 
 pub use simple::tuning::{
     SoniqoChunkingMode, SoniqoTuning, seconds_to_samples, set_soniqo_tuning, soniqo_tuning,
@@ -198,6 +202,40 @@ pub async fn run_batch(
     result
 }
 
+/// Wuerde ein neuer Lauf mit diesem Anbieter Mikrofon und Systemton trennen?
+///
+/// Fuer den Hinweis an alten Cloud-Transkripten (ZICK-330 Nachzug): er
+/// erscheint nur, wenn ein Neu-Transkribieren wirklich getrennt zurueckkaeme.
+/// Dieselben zwei Entscheidungen wie im Lauf (`run_batch_inner`): Anbieter auf
+/// der Positivliste, und die Aufnahme selbst passt (zwei sprechende Kanaele,
+/// nicht dieselbe Quelle). Blockierend: dekodiert die ganze Aufnahme.
+pub fn cloud_channel_split_available(
+    provider: &str,
+    model: Option<&str>,
+    file_path: &str,
+) -> std::result::Result<bool, String> {
+    let Some(adapter_kind) = provider
+        .parse::<BatchProvider>()
+        .ok()
+        .and_then(|provider| provider.to_adapter_kind())
+    else {
+        return Ok(false);
+    };
+    // Mit welcher Sprecherzahl der naechste Lauf kommt, weiss der Hinweis
+    // nicht. Vorsichtig angenommen: mit einer (die App setzt sie, sobald es
+    // Teilnehmer gibt). Dann faellt xAI heraus, und der Hinweis verspricht
+    // nichts, was der Lauf nicht haelt.
+    let listen_params = owhisper_interface::ListenParams {
+        model: model.map(str::to_string),
+        num_speakers: Some(2),
+        ..Default::default()
+    };
+    if !adapter_splits_channels(&adapter_kind, &listen_params) {
+        return Ok(false);
+    }
+    channel_split_would_apply(file_path)
+}
+
 pub fn expects_progressive_batch(params: &BatchParams) -> bool {
     match params.provider {
         BatchProvider::WhisperLocal => true,
@@ -243,7 +281,32 @@ async fn run_batch_inner(
 
     let listen_params = build_listen_params(&params, metadata.channels, metadata.sample_rate);
 
-    match params.provider {
+    // ZICK-330: Text-Anbieter ohne eigene Sprechertrennung (Positivliste in
+    // `simple/direct.rs`, `adapter_splits_channels`) bekommen Mikrofon und
+    // Systemton getrennt, in Sprech-Paketen je Kanal (`simple/channel_split.rs`). Gilt auch fuer die
+    // OpenAI-Modelle, die sonst den progressiven Weg nehmen -- genau dort
+    // (`gpt-transcribe`) ging der Kanal bisher verloren. Passt der Weg nicht
+    // (Mono, hoechstens ein sprechender Kanal), geht es unten weiter wie bisher.
+    let mut fallback = None;
+    if listen_params.channels > 1
+        && let Some(adapter_kind) = params.provider.to_adapter_kind()
+        && adapter_splits_channels(&adapter_kind, &listen_params)
+    {
+        match run_channel_split_for_adapter_kind(
+            adapter_kind,
+            runtime.clone(),
+            &params,
+            &listen_params,
+        )
+        .await?
+        {
+            ChannelSplitOutcome::Done(output) => return Ok(output),
+            ChannelSplitOutcome::WholeFile => {}
+            ChannelSplitOutcome::Fallback(reason) => fallback = Some(reason),
+        }
+    }
+
+    let mut output = match params.provider {
         BatchProvider::WhisperLocal => {
             run_progressive_batch_session(runtime, params, listen_params).await
         }
@@ -266,6 +329,68 @@ async fn run_batch_inner(
                 .expect("all non-special BatchProvider variants have an AdapterKind mapping");
             run_direct_batch_for_adapter_kind(adapter_kind, params, listen_params).await
         }
+    }?;
+
+    if let Some(reason) = fallback {
+        mark_unsplit_fallback(&mut output.response, reason);
+    }
+    Ok(output)
+}
+
+/// Der Kanal-Weg sollte trennen, konnte aber nicht (Forge M3): die ganze
+/// Datei kam als ein Kanal zurueck, und Kanal 0 hiesse in der Anzeige "der
+/// Nutzer". Die Woerter kommen deshalb auf den gemischten Kanal
+/// (`MixedCapture`, 2) -- wie eine Raumaufnahme, niemand wird falsch benannt
+/// --, und die Metadaten tragen den Grund.
+///
+/// Die Oberflaeche nimmt den Kanal aus der POSITION in `results.channels`
+/// (`apps/desktop/src/store/zustand/listener/batch.ts`, `channel: channelIndex`),
+/// nicht aus `word.channel`. Deshalb wandert der Text auf Position 2, und
+/// die Positionen 0 und 1 bleiben ohne Alternative (werden uebersprungen).
+const MIXED_CAPTURE_CHANNEL: usize = 2;
+
+fn mark_unsplit_fallback(response: &mut owhisper_interface::batch::Response, reason: &str) {
+    use owhisper_interface::batch::{Alternatives, Channel};
+
+    let mut transcripts = Vec::new();
+    let mut words = Vec::new();
+    let mut confidence: f64 = 1.0;
+    for channel in std::mem::take(&mut response.results.channels) {
+        if let Some(alternative) = channel.alternatives.into_iter().next() {
+            if !alternative.transcript.trim().is_empty() {
+                transcripts.push(alternative.transcript);
+            }
+            confidence = confidence.min(alternative.confidence);
+            words.extend(alternative.words);
+        }
+    }
+    words.sort_by(|a, b| a.start.total_cmp(&b.start));
+    for word in &mut words {
+        word.channel = MIXED_CAPTURE_CHANNEL as i32;
+    }
+
+    let mut channels = (0..MIXED_CAPTURE_CHANNEL)
+        .map(|_| Channel {
+            alternatives: Vec::new(),
+        })
+        .collect::<Vec<_>>();
+    channels.push(Channel {
+        alternatives: vec![Alternatives {
+            transcript: transcripts.join(" "),
+            confidence,
+            words,
+        }],
+    });
+    response.results.channels = channels;
+
+    if !response.metadata.is_object() {
+        response.metadata = serde_json::json!({});
+    }
+    if let Some(object) = response.metadata.as_object_mut() {
+        object.insert(
+            "channel_split_fallback".to_string(),
+            serde_json::json!(reason),
+        );
     }
 }
 
@@ -309,6 +434,12 @@ pub(super) fn session_span(session_id: &str) -> tracing::Span {
     tracing::info_span!("session", anarlog.session.id = %session_id)
 }
 
+/// Die Meldung fuer eine Ratenbegrenzung (HTTP 429). Eigene Konstante, weil der
+/// Kanal-Weg (`simple/channel_split.rs`) genau daran erkennt, dass sich ein
+/// erneuter Versuch lohnt.
+pub(super) const RATE_LIMIT_MESSAGE: &str =
+    "Rate limit exceeded. Please wait a moment and try again.";
+
 pub(super) fn format_user_friendly_error(error: &str) -> String {
     let error_lower = error.to_lowercase();
 
@@ -320,7 +451,7 @@ pub(super) fn format_user_friendly_error(error: &str) -> String {
             .to_string();
     }
     if error_lower.contains("429") || error_lower.contains("rate limit") {
-        return "Rate limit exceeded. Please wait a moment and try again.".to_string();
+        return RATE_LIMIT_MESSAGE.to_string();
     }
     if error_lower.contains("timeout") {
         return "Connection timed out. Please check your internet connection and try again."

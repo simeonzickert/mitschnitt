@@ -1,4 +1,10 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { createRef } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -9,7 +15,19 @@ const {
   useAudioPlayerMock,
   useSessionTranscriptMetadataMock,
   regenerateTranscriptMock,
+  speakerSeparationNoticeMock,
 } = vi.hoisted(() => ({
+  speakerSeparationNoticeMock: vi.fn(
+    (): {
+      status: "hidden" | "checking" | "show";
+      show: boolean;
+      dismiss: () => void;
+    } => ({
+      status: "hidden",
+      show: false,
+      dismiss: () => {},
+    }),
+  ),
   useListenerMock: vi.fn(),
   useAudioPlayerMock: vi.fn(),
   useSessionTranscriptMetadataMock: vi.fn(),
@@ -18,6 +36,13 @@ const {
 
 vi.mock("./actions", () => ({
   useRegenerateTranscript: () => regenerateTranscriptMock,
+}));
+
+vi.mock("./speaker-separation-notice", () => ({
+  useSpeakerSeparationNotice: speakerSeparationNoticeMock,
+  TranscriptSpeakerSeparationNotice: () => (
+    <div data-testid="transcript-speaker-separation-notice" />
+  ),
 }));
 
 vi.mock("~/stt/queries", () => ({
@@ -101,6 +126,7 @@ describe("Transcript", () => {
 
   beforeEach(() => {
     regenerateTranscriptMock.mockClear();
+    regenerateTranscriptMock.mockResolvedValue(undefined);
     transcripts = [{ id: transcriptId, hasWords: false }];
 
     listenerState = {
@@ -219,8 +245,89 @@ describe("Transcript", () => {
 
     const button = screen.getByRole("button", { name: "Re-transcribe" });
     fireEvent.click(button);
+    // Forge M6: ein vorhandenes Transkript wird erst nach Rueckfrage ersetzt.
+    expect(regenerateTranscriptMock).not.toHaveBeenCalled();
+
+    const buttons = screen.getAllByRole("button", { name: "Re-transcribe" });
+    fireEvent.click(buttons[buttons.length - 1]!);
 
     expect(regenerateTranscriptMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("closes the confirmation as soon as the run starts, not when it ends (Forge M6)", async () => {
+    listenerState = {
+      ...listenerState,
+      getSessionMode: () => "inactive",
+    };
+    transcripts = [{ id: transcriptId, hasWords: true }];
+    useAudioPlayerMock.mockReturnValue({
+      audioExists: true,
+      audioExistsResolved: true,
+    });
+    // Der Lauf endet nie -- der Dialog muss trotzdem zugehen.
+    regenerateTranscriptMock.mockReturnValue(new Promise(() => {}));
+
+    render(<Transcript sessionId={sessionId} scrollRef={createRef()} />);
+    fireEvent.click(screen.getByRole("button", { name: "Re-transcribe" }));
+    expect(screen.getByText("Re-transcribe the whole recording?")).toBeTruthy();
+    const buttons = screen.getAllByRole("button", { name: "Re-transcribe" });
+    fireEvent.click(buttons[buttons.length - 1]!);
+
+    await waitFor(() => {
+      expect(
+        screen.queryByText("Re-transcribe the whole recording?"),
+      ).toBeNull();
+    });
+    expect(regenerateTranscriptMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("hides the plain Re-transcribe button while the speaker-separation check runs (Forge M6)", () => {
+    listenerState = {
+      ...listenerState,
+      getSessionMode: () => "inactive",
+    };
+    transcripts = [{ id: transcriptId, hasWords: true }];
+    useAudioPlayerMock.mockReturnValue({
+      audioExists: true,
+      audioExistsResolved: true,
+    });
+    speakerSeparationNoticeMock.mockReturnValueOnce({
+      status: "checking",
+      show: false,
+      dismiss: () => {},
+    });
+
+    render(<Transcript sessionId={sessionId} scrollRef={createRef()} />);
+
+    expect(screen.queryByRole("button", { name: "Re-transcribe" })).toBeNull();
+  });
+
+  it("shows the speaker-separation notice instead of the plain button for an old cloud transcript (ZICK-330)", () => {
+    listenerState = {
+      ...listenerState,
+      getSessionMode: () => "inactive",
+    };
+    transcripts = [{ id: transcriptId, hasWords: true }];
+    useAudioPlayerMock.mockReturnValue({
+      audioExists: true,
+      audioExistsResolved: true,
+    });
+    speakerSeparationNoticeMock.mockReturnValueOnce({
+      status: "show",
+      show: true,
+      dismiss: () => {},
+    });
+
+    render(<Transcript sessionId={sessionId} scrollRef={createRef()} />);
+
+    expect(
+      screen.getByTestId("transcript-speaker-separation-notice"),
+    ).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Re-transcribe" })).toBeNull();
+    expect(speakerSeparationNoticeMock).toHaveBeenLastCalledWith({
+      sessionId,
+      enabled: true,
+    });
   });
 
   it("hides the Re-transcribe button while no audio recording exists", () => {

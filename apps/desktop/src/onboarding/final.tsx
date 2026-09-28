@@ -1,6 +1,6 @@
-import { useLingui } from "@lingui/react";
-import { Trans } from "@lingui/react/macro";
+import { Trans, useLingui } from "@lingui/react/macro";
 import { CircleNotch } from "@phosphor-icons/react";
+import { platform } from "@tauri-apps/plugin-os";
 import { useRef, useState } from "react";
 
 import { type ModelGateState } from "./model-gate";
@@ -11,9 +11,9 @@ import {
   setPendingWelcomeSession,
 } from "./welcome-note";
 
+import { createSession } from "~/session/queries";
 import { STT } from "~/settings/ai/stt";
 import { formatModelSize } from "~/settings/ai/stt/shared";
-import { createSession } from "~/session/queries";
 import { flushAutomaticRelaunch } from "~/shared/relaunch";
 import { commands } from "~/types/tauri.gen";
 
@@ -22,12 +22,12 @@ export function FinalSection({
 }: {
   onContinue: (sessionId: string) => void;
 }) {
-  const { i18n } = useLingui();
-  const translate = i18n._.bind(i18n);
+  const { t } = useLingui();
+  const isWindows = platform() === "windows";
   const [status, setStatus] = useState<"idle" | "loading" | "error">("idle");
   const finishPromiseRef = useRef<Promise<void> | null>(null);
   const welcomeSessionRef = useRef<string | null>(null);
-  const [showCloudSetup, setShowCloudSetup] = useState(false);
+  const [showCloudSetup, setShowCloudSetup] = useState(isWindows);
 
   const { state, canFinish, sizeBytes, retry } = useOnboardingModelGate();
 
@@ -58,21 +58,33 @@ export function FinalSection({
 
   return (
     <div className="flex flex-col items-start gap-3">
-      <ModelGateStatus state={state} sizeBytes={sizeBytes} onRetry={retry} />
+      {!isWindows ? (
+        <ModelGateStatus state={state} sizeBytes={sizeBytes} onRetry={retry} />
+      ) : (
+        <p className="text-muted-foreground text-sm">
+          {canFinish ? (
+            <Trans>A cloud transcription provider is set up.</Trans>
+          ) : (
+            <Trans>Choose a cloud transcription provider below.</Trans>
+          )}
+        </p>
+      )}
 
-      {showCloudToggle && (
+      {(showCloudToggle || isWindows) && (
         <div className="flex w-full flex-col items-start gap-2">
-          <button
-            type="button"
-            onClick={() => setShowCloudSetup((value) => !value)}
-            className="text-muted-foreground hover:text-foreground text-xs underline underline-offset-2 transition-colors"
-          >
-            {showCloudSetup ? (
-              <Trans>Hide cloud provider setup</Trans>
-            ) : (
-              <Trans>I'd rather use a cloud provider</Trans>
-            )}
-          </button>
+          {!isWindows && (
+            <button
+              type="button"
+              onClick={() => setShowCloudSetup((value) => !value)}
+              className="text-muted-foreground hover:text-foreground text-xs underline underline-offset-2 transition-colors"
+            >
+              {showCloudSetup ? (
+                <Trans>Hide cloud provider setup</Trans>
+              ) : (
+                <Trans>I'd rather use a cloud provider</Trans>
+              )}
+            </button>
+          )}
           {showCloudSetup && (
             <div className="w-full">
               <STT />
@@ -82,14 +94,21 @@ export function FinalSection({
       )}
 
       <p className="text-muted-foreground max-w-sm text-xs">
-        <Trans>
-          Transcription runs locally on this device, no account needed.
-          Summaries need a provider set up under Settings → Intelligence: an
-          API key for a cloud provider such as Claude, ChatGPT, Gemini, Grok,
-          or Mistral, or a locally running server like Ollama or LM Studio.
-          Without a provider, you'll still get the transcript, just no
-          summary.
-        </Trans>
+        {!isWindows ? (
+          <Trans>
+            Transcription runs locally on this device, no account needed.
+            Summaries need a provider set up under Settings → Intelligence: an
+            API key for a cloud provider such as Claude, ChatGPT, Gemini, Grok,
+            or Mistral, or a locally running server like Ollama or LM Studio.
+            Without a provider, you'll still get the transcript, just no
+            summary.
+          </Trans>
+        ) : (
+          <Trans>
+            Transcription uses the cloud provider you choose. Summaries need a
+            separate AI provider, which you can set up later in Settings.
+          </Trans>
+        )}
       </p>
 
       <OnboardingButton
@@ -108,10 +127,7 @@ export function FinalSection({
       </OnboardingButton>
       {status === "error" && (
         <p className="text-sm text-red-500" role="alert">
-          {translate({
-            id: "onboarding.finish-error",
-            message: "Couldn't open Mitschnitt. Please try again.",
-          })}
+          {t`Couldn't open Mitschnitt. Please try again.`}
         </p>
       )}
     </div>
@@ -171,8 +187,8 @@ function ModelGateStatus({
         {state.exhausted && (
           <p className="text-muted-foreground text-xs">
             <Trans>
-              Restarting Mitschnitt will resume the download. This screen
-              won't come back.
+              Restarting Mitschnitt will resume the download. This screen won't
+              come back.
             </Trans>
           </p>
         )}

@@ -1,4 +1,5 @@
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -6,6 +7,7 @@ import {
   screen,
   waitFor,
 } from "@testing-library/react";
+import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { EditorView } from "~/store/zustand/tabs/schema";
@@ -102,6 +104,7 @@ const lingui = vi.hoisted(() => {
 });
 
 vi.mock("@lingui/react/macro", () => ({
+  Trans: ({ children }: { children?: ReactNode }) => children,
   useLingui: () => ({
     _: lingui.t,
     t: lingui.t,
@@ -109,6 +112,7 @@ vi.mock("@lingui/react/macro", () => ({
 }));
 
 vi.mock("@lingui/react", () => ({
+  Trans: ({ children }: { children?: ReactNode }) => children,
   useLingui: () => ({
     _: lingui.t,
     t: lingui.t,
@@ -525,6 +529,35 @@ describe("Header", () => {
       type: "enhanced",
       id: "note-1",
     });
+  });
+
+  it("asks before the context menu re-transcribes an existing transcript (Forge M6)", async () => {
+    hoisted.regenerateTranscript.mockResolvedValue(undefined);
+    const editorTabs: EditorView[] = [{ type: "raw" }, { type: "transcript" }];
+
+    render(
+      <SessionViewSwitcher
+        sessionId="session-1"
+        editorTabs={editorTabs}
+        currentTab={{ type: "transcript" }}
+        handleTabChange={vi.fn()}
+      />,
+    );
+
+    const menu = findContextMenu("copy-transcript-session-1");
+    act(() => {
+      menu
+        .find(
+          (item): item is Extract<CapturedMenuItem, { id: string }> =>
+            "id" in item && item.id === "regenerate-transcript-session-1",
+        )
+        ?.action();
+    });
+
+    expect(hoisted.regenerateTranscript).not.toHaveBeenCalled();
+    expect(
+      await screen.findByText("Re-transcribe the whole recording?"),
+    ).toBeTruthy();
   });
 
   it("adds recording actions to the transcript tab context menu", async () => {

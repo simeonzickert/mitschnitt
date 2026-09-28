@@ -1,9 +1,15 @@
-import { Trans } from "@lingui/react/macro";
+import { Trans, useLingui } from "@lingui/react/macro";
 import { useState } from "react";
 
 import { Accordion } from "@anlg/ui/components/ui/accordion";
+import { Separator } from "@anlg/ui/components/ui/separator";
 
 import { useLlmSettings } from "./context";
+import {
+  LLM_LOCAL_PROVIDER_IDS,
+  LLM_TOP_PROVIDER_IDS,
+  useConfiguredMapping,
+} from "./select";
 import { ProviderId, PROVIDERS } from "./shared";
 import {
   isSubscriptionProviderId,
@@ -16,23 +22,69 @@ import { ConnectSubscriptionDialog } from "./subscriptions/connect";
 import {
   filterProviders,
   NonAnarlogProviderCard,
+  ProviderGroupLabel,
   ProviderSearch,
   StyledStreamdown,
 } from "~/settings/ai/shared";
+import { splitLocalTopMore } from "~/settings/ai/shared/provider-groups";
+import { getConfiguredProviderIds } from "~/settings/ai/shared/selection";
 import { useConfigValue } from "~/shared/config";
 
+// Der Import aus "./select" ist gewollt: dieselbe Quelle (splitLocalTopMore,
+// die Local/Top-Konstanten, der "configured"-Status) gruppiert sowohl das
+// Dropdown dort als auch diese Karten-Liste hier -- nicht zweimal sortieren
+// (28.09.2026, Befund: die Karten waren "bunt gemischt").
 export function ConfigureProviders() {
   const { accordionValue, setAccordionValue } = useLlmSettings();
   const currentProvider = useConfigValue("current_llm_provider");
   const [search, setSearch] = useState("");
   const [connectingId, setConnectingId] =
     useState<SubscriptionProviderId | null>(null);
+  const { t } = useLingui();
+  const { providers: configuredProviders } = useConfiguredMapping();
   const providers = filterProviders(
     PROVIDERS.filter((provider) =>
       shouldShowInProviderList(provider.id, search),
     ),
     search,
   );
+  const configuredProviderIds = getConfiguredProviderIds(
+    providers,
+    configuredProviders,
+    currentProvider,
+  );
+  const { local, top, more } = splitLocalTopMore(
+    providers,
+    LLM_LOCAL_PROVIDER_IDS,
+    LLM_TOP_PROVIDER_IDS,
+    { selectedId: currentProvider, configuredIds: configuredProviderIds },
+  );
+
+  const renderCard = (provider: (typeof providers)[number]) => {
+    const providerId = provider.id;
+    const twinId = subscriptionTwinId(providerId);
+    return (
+      <NonAnarlogProviderCard
+        key={provider.id}
+        config={provider}
+        providerType="llm"
+        providers={PROVIDERS}
+        providerContext={
+          <ProviderContext providerId={provider.id as ProviderId} />
+        }
+        currentProvider={currentProvider}
+        onConnect={
+          isSubscriptionProviderId(providerId)
+            ? () => setConnectingId(providerId)
+            : undefined
+        }
+        onConnectSubscription={
+          twinId ? () => setConnectingId(twinId) : undefined
+        }
+        subscriptionProviderId={twinId}
+      />
+    );
+  };
 
   return (
     <div className="flex flex-col gap-3">
@@ -49,31 +101,26 @@ export function ConfigureProviders() {
         value={accordionValue}
         onValueChange={setAccordionValue}
       >
-        {providers.map((provider) => {
-          const providerId = provider.id;
-          const twinId = subscriptionTwinId(providerId);
-          return (
-            <NonAnarlogProviderCard
-              key={provider.id}
-              config={provider}
-              providerType="llm"
-              providers={PROVIDERS}
-              providerContext={
-                <ProviderContext providerId={provider.id as ProviderId} />
-              }
-              currentProvider={currentProvider}
-              onConnect={
-                isSubscriptionProviderId(providerId)
-                  ? () => setConnectingId(providerId)
-                  : undefined
-              }
-              onConnectSubscription={
-                twinId ? () => setConnectingId(twinId) : undefined
-              }
-              subscriptionProviderId={twinId}
-            />
-          );
-        })}
+        {local.length > 0 ? (
+          <>
+            <ProviderGroupLabel>{t`Local`}</ProviderGroupLabel>
+            {local.map(renderCard)}
+            <Separator />
+          </>
+        ) : null}
+        {top.length > 0 ? (
+          <>
+            <ProviderGroupLabel>{t`Cloud`}</ProviderGroupLabel>
+            {top.map(renderCard)}
+          </>
+        ) : null}
+        {more.length > 0 ? (
+          <>
+            {top.length > 0 || local.length > 0 ? <Separator /> : null}
+            <ProviderGroupLabel>{t`More`}</ProviderGroupLabel>
+            {more.map(renderCard)}
+          </>
+        ) : null}
       </Accordion>
       {providers.length === 0 && search.trim() ? (
         <p className="text-muted-foreground py-8 text-center text-sm">

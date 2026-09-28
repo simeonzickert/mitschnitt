@@ -2,8 +2,13 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
+  platform: "macos" as "macos" | "windows",
   currentTab: null as { type: string } | null,
   openNew: vi.fn(),
+}));
+
+vi.mock("@tauri-apps/plugin-os", () => ({
+  platform: () => mocks.platform,
 }));
 
 vi.mock("~/store/zustand/tabs", () => ({
@@ -23,6 +28,7 @@ import { isTabInputSupported } from "~/store/zustand/tabs/schema";
 
 describe("SidebarFooterNav", () => {
   beforeEach(() => {
+    mocks.platform = "macos";
     mocks.currentTab = null;
     mocks.openNew.mockClear();
   });
@@ -41,6 +47,15 @@ describe("SidebarFooterNav", () => {
       .map((button) => button.getAttribute("aria-label"));
 
     expect(labels).toEqual(["Calendar", "Contacts", "Settings"]);
+  });
+
+  it("hides the unavailable calendar on Windows", () => {
+    mocks.platform = "windows";
+    render(<SidebarFooterNav />);
+
+    expect(screen.queryByLabelText("Calendar")).toBeNull();
+    expect(screen.getByLabelText("Contacts")).toBeTruthy();
+    expect(screen.getByLabelText("Settings")).toBeTruthy();
   });
 
   // Rot, sobald ein Klick nirgendwohin fuehrt oder das falsche Ziel oeffnet -

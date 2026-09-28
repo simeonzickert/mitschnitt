@@ -1,3 +1,5 @@
+import type { MessageDescriptor } from "@lingui/core";
+import { msg } from "@lingui/core/macro";
 import { Trans, useLingui } from "@lingui/react/macro";
 import {
   ArrowSquareOut,
@@ -63,10 +65,25 @@ type ProviderConfig = {
   checkAvailability?: (baseUrl: string, apiKey: string) => Promise<boolean>;
   hideAdvanced?: boolean;
   links?: {
-    download?: { label: string; url: string };
-    models?: { label: string; url: string };
-    setup?: { label: string; url: string };
+    download?: { label: MessageDescriptor; url: string };
+    models?: { label: MessageDescriptor; url: string };
+    setup?: { label: MessageDescriptor; url: string };
   };
+};
+
+// `badge` bleibt auf der Datenseite (llm/shared.tsx, stt/shared.tsx) ein
+// stabiler englischer Schluessel, an dem `ProviderBadge` unten den
+// Sonderfall "Batch only" erkennt -- das Uebersetzen passiert erst hier,
+// eine Ebene naeher am Rendern.
+const BADGE_LABELS: Record<string, MessageDescriptor> = {
+  Recommended: msg`Recommended`,
+  Subscription: msg`Subscription`,
+  Beta: msg`Beta`,
+  Experimental: msg`Experimental`,
+  "Batch only": msg`Batch only`,
+  Gateway: msg`Gateway`,
+  "On device": msg`On device`,
+  "Short batch": msg`Short batch`,
 };
 
 const MITSCHNITT_ICON_SRC = "/assets/mitschnitt-icon.png";
@@ -170,6 +187,18 @@ export function AiIconSlot({
 
 export function ProviderIconSlot({ children }: { children: ReactNode }) {
   return <AiIconSlot>{children}</AiIconSlot>;
+}
+
+// Kleine Zwischenueberschrift fuer die drei Gruppen (Lokal/Cloud/Weitere) in
+// einer Anbieter-Liste ausserhalb des Select-Dropdowns (z.B. "Anbieter
+// einrichten"). Gleicher Stil wie die Modell-Kategorie-Labels im
+// Modell-Dropdown (stt/select.tsx), nur wiederverwendbar (28.09.2026).
+export function ProviderGroupLabel({ children }: { children: ReactNode }) {
+  return (
+    <div className="text-muted-foreground px-2 pt-1 pb-1 text-[11px] font-medium tracking-wide uppercase">
+      {children}
+    </div>
+  );
 }
 
 export function ProviderButtonIcon({ children }: { children: ReactNode }) {
@@ -288,7 +317,7 @@ export function NonAnarlogProviderCard({
   onConnectSubscription?: () => void;
   subscriptionProviderId?: string;
 }) {
-  const { t } = useLingui();
+  const { t, i18n } = useLingui();
   const [provider, providerMutation, providerStateReady] = useProvider(
     providerType,
     config.id,
@@ -593,7 +622,7 @@ export function NonAnarlogProviderCard({
                   rel="noopener noreferrer"
                   className="text-muted-foreground hover:text-foreground inline-flex items-center gap-0.5 hover:underline"
                 >
-                  {config.links.download.label}
+                  {i18n._(config.links.download.label)}
                   <ArrowSquareOut size={12} />
                 </a>
               )}
@@ -604,7 +633,7 @@ export function NonAnarlogProviderCard({
                   rel="noopener noreferrer"
                   className="text-muted-foreground hover:text-foreground inline-flex items-center gap-0.5 hover:underline"
                 >
-                  {config.links.models.label}
+                  {i18n._(config.links.models.label)}
                   <ArrowSquareOut size={12} />
                 </a>
               )}
@@ -615,7 +644,7 @@ export function NonAnarlogProviderCard({
                   rel="noopener noreferrer"
                   className="text-muted-foreground hover:text-foreground inline-flex items-center gap-0.5 hover:underline"
                 >
-                  {config.links.setup.label}
+                  {i18n._(config.links.setup.label)}
                   <ArrowSquareOut size={12} />
                 </a>
               )}
@@ -668,7 +697,9 @@ export function NonAnarlogProviderCard({
 }
 
 function ProviderBadge({ badge }: { badge: string }) {
+  const { i18n } = useLingui();
   const isBatchOnly = badge === "Batch only";
+  const label = i18n._(BADGE_LABELS[badge] ?? { id: badge, message: badge });
   const badgeNode = (
     <span
       className={cn([
@@ -678,7 +709,7 @@ function ProviderBadge({ badge }: { badge: string }) {
           : "border-border rounded-full border px-2 text-xs font-light",
       ])}
     >
-      {badge}
+      {label}
     </span>
   );
 

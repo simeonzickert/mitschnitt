@@ -21,6 +21,7 @@ import {
   VideoCamera,
   X,
 } from "@phosphor-icons/react";
+import { platform } from "@tauri-apps/plugin-os";
 import { useCallback, useState } from "react";
 
 import { cn } from "@anlg/utils";
@@ -143,9 +144,15 @@ export function SettingsNav() {
     },
   ];
 
+  const availableGroups = groups.map((group) => ({
+    ...group,
+    items: group.items.filter(
+      (item) => item.id !== "calendar" || platform() !== "windows",
+    ),
+  }));
   const query = search.trim().toLowerCase();
   const visibleGroups = query
-    ? groups
+    ? availableGroups
         .map((group) =>
           group.label.toLowerCase().includes(query)
             ? group
@@ -157,7 +164,7 @@ export function SettingsNav() {
               },
         )
         .filter((group) => group.items.length > 0)
-    : groups;
+    : availableGroups;
 
   return (
     <div className="flex h-full w-full flex-col overflow-hidden">

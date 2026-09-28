@@ -3,6 +3,8 @@ use tauri::{
     menu::{MenuItem, MenuItemKind},
 };
 
+use crate::{Text, current_menu_lang, tr};
+
 use super::MenuItemHandler;
 
 pub struct AppNew;
@@ -11,7 +13,13 @@ impl MenuItemHandler for AppNew {
     const ID: &'static str = "anlg_app_new";
 
     fn build(app: &AppHandle<tauri::Wry>) -> Result<MenuItemKind<tauri::Wry>> {
-        let item = MenuItem::with_id(app, Self::ID, "New Note", true, Some("CmdOrCtrl+N"))?;
+        let item = MenuItem::with_id(
+            app,
+            Self::ID,
+            tr(Text::NewNote, current_menu_lang()),
+            true,
+            Some("CmdOrCtrl+N"),
+        )?;
         Ok(MenuItemKind::MenuItem(item))
     }
 

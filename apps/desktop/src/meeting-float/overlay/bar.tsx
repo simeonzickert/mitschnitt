@@ -1,3 +1,4 @@
+import { useLingui } from "@lingui/react/macro";
 import {
   ArrowsInSimple,
   ArrowsOutSimple,
@@ -294,6 +295,7 @@ function FloatingControls({
   onStop: () => void;
   onToggleExpanded: (expanded: boolean) => void;
 }) {
+  const { t } = useLingui();
   return (
     <div
       className="flex items-center"
@@ -311,7 +313,7 @@ function FloatingControls({
           type="button"
           data-tauri-drag-region="false"
           aria-label={
-            isExpanded ? "Collapse live transcript" : "Expand live transcript"
+            isExpanded ? t`Collapse live transcript` : t`Expand live transcript`
           }
           onClick={() => onToggleExpanded(!isExpanded)}
           className="flex items-center justify-center"
@@ -346,6 +348,7 @@ function StopControl({
   colors: BarColors;
   onStop: () => void;
 }) {
+  const { t } = useLingui();
   const [hovered, setHovered] = useState(false);
   const width = state.liveCaptionToggleVisible
     ? FLOATING_BAR_COMPACT_STOP_WIDTH
@@ -355,7 +358,7 @@ function StopControl({
     <button
       type="button"
       data-tauri-drag-region="false"
-      aria-label="Stop listening"
+      aria-label={t`Stop listening`}
       onClick={onStop}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}

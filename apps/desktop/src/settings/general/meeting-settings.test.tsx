@@ -61,6 +61,8 @@ describe("MeetingSettingsView", () => {
     expect(screen.queryByText("Capture meeting chat in Memos")).toBeNull();
     expect(screen.getByText("Show floating bar")).toBeTruthy();
     expect(screen.queryByText("Stop when meeting ends")).toBeNull();
+    expect(screen.queryByText("Start when meeting begins")).toBeNull();
+    expect(screen.queryByText("Join scheduled meetings")).toBeNull();
   });
 
   it("exposes meeting chat capture and disclosure on Linux", () => {

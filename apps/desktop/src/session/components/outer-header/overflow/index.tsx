@@ -30,6 +30,7 @@ import { useAudioPlayer } from "~/audio-player";
 import { openFloatingMeetingPanel } from "~/meeting-float/host";
 import { isFloatingBarSupported } from "~/meeting-float/support";
 import { useRegenerateTranscript } from "~/session/components/note-input/transcript/actions";
+import { useConfirmedRegenerate } from "~/session/components/note-input/transcript/regenerate-confirmation";
 import {
   useCurrentNoteHasContent,
   useHasTranscript,
@@ -63,6 +64,12 @@ export function OverflowButton({
   const { audioExists, audioExistsResolved } = useAudioPlayer();
   const { uploadAudio, uploadTranscript } = useUploadFile(sessionId);
   const regenerateTranscript = useRegenerateTranscript(sessionId);
+  // Forge-Nachpruefung M6: auch das Drei-Punkte-Menue fragt, bevor ein
+  // vorhandenes Transkript samt Korrekturen ersetzt wird.
+  const confirmedRegenerate = useConfirmedRegenerate(
+    regenerateTranscript,
+    hasTranscript,
+  );
   const sessionMode = useListener((state) => state.getSessionMode(sessionId));
   const floatingBarEnabled = useConfigValue("floating_bar_enabled");
   const floatingBarSupported = isFloatingBarSupported();
@@ -102,7 +109,9 @@ export function OverflowButton({
   };
   const handleRetranscribe = () => {
     setOpen(false);
-    void regenerateTranscript();
+    // Wie beim Loeschen: erst das Menue schliessen, dann den Dialog, sonst
+    // streiten beide um den Fokus.
+    requestAnimationFrame(() => confirmedRegenerate.request());
   };
   const handleOpenFloatingPanel = () => {
     setOpen(false);
@@ -232,6 +241,7 @@ export function OverflowButton({
         />
       )}
       {deleteConfirmation}
+      {confirmedRegenerate.dialog}
     </>
   );
 }

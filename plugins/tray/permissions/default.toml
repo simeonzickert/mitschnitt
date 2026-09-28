@@ -2,6 +2,7 @@
 description = "Default permissions for the plugin"
 permissions = [
     "allow-set-tray-icon-visible",
+    "allow-set-tray-menu-language",
     "allow-set-tray-recording-title",
     "allow-set-tray-schedule",
 ]

@@ -1,3 +1,4 @@
+import { t } from "@lingui/core/macro";
 import { tool } from "ai";
 import { z } from "zod";
 
@@ -35,14 +36,13 @@ export const buildEditMemoTool = (
       if (!sessionId) {
         return {
           status: "error",
-          message:
-            "No active session selected. Provide sessionId explicitly when calling edit_memo.",
+          message: t`No active session selected. Provide sessionId explicitly when calling edit_memo.`,
         };
       }
 
       const snapshot = await loadSessionContentSnapshot(sessionId);
       if (!snapshot) {
-        return { status: "error", message: "Session not found." };
+        return { status: "error", message: t`Session not found.` };
       }
 
       try {
@@ -57,7 +57,7 @@ export const buildEditMemoTool = (
       } catch {
         return {
           status: "error",
-          message: "Failed to save the proposed memo edit.",
+          message: t`Failed to save the proposed memo edit.`,
         };
       }
 
@@ -84,7 +84,7 @@ export const buildEditMemoTool = (
       } catch {
         return {
           status: "error",
-          message: "Failed to apply the memo edit.",
+          message: t`Failed to apply the memo edit.`,
         };
       }
 

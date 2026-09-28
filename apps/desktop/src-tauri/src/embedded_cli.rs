@@ -625,14 +625,15 @@ fn classify_status(
 // desselben Programms, die sich in einem Befehl unterscheiden, unterscheiden
 // sich auch in der Groesse. Ein nicht lesbarer Stand aendert nichts -- dann
 // gilt wie vorher die Versionsregel, und der schlimmste Ausgang ist der alte.
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 fn classify_status_against(
     command_name: &str,
     install_path: PathBuf,
     app_version: &str,
     resource_path: Option<&Path>,
 ) -> EmbeddedCliStatus {
-    let state = managed_binary_path(&install_path, command_name, app_version).and_then(
-        |managed_path| {
+    let state =
+        managed_binary_path(&install_path, command_name, app_version).and_then(|managed_path| {
             let state = classify_installation(&install_path, &managed_path)?;
             if state != EmbeddedCliState::Installed {
                 return Ok(state);
@@ -643,8 +644,7 @@ fn classify_status_against(
                 }
                 _ => state,
             })
-        },
-    );
+        });
 
     match state {
         Ok(state) => EmbeddedCliStatus {
@@ -696,6 +696,7 @@ fn differs_in_size(resource_path: &Path, managed_path: &Path) -> bool {
     resource_time > managed_time
 }
 
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 fn classify_installation(
     install_path: &Path,
     managed_path: &Path,
