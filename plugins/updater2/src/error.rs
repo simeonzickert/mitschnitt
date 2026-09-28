@@ -24,6 +24,12 @@ pub enum Error {
     VersionMismatch { expected: String, actual: String },
     #[error("cached update {version} is not newer than current {current}")]
     UpdateNotNewer { version: String, current: String },
+    #[error("cached update version {version} is not valid semver: {source}")]
+    CachedVersionInvalid {
+        version: String,
+        #[source]
+        source: semver::Error,
+    },
     #[error("failed to determine current app path")]
     FailedToDetermineCurrentAppPath,
     #[error("failed to schedule installed app launch at {path}: {details}")]

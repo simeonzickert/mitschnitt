@@ -61,13 +61,11 @@ impl<'a, R: tauri::Runtime, M: tauri::Manager<R>> Updater2<'a, R, M> {
     }
 
     pub fn maybe_emit_updated(&self) {
-        let current_version = match self.manager.config().version.as_ref() {
-            Some(v) => v.clone(),
-            None => {
-                tracing::warn!("no_version_in_config");
-                return;
-            }
-        };
+        // package_info().version is Tauri's own reading of the app's real
+        // version (from Cargo.toml/package.json at build time) -- unlike
+        // config().version, which is always None here because none of our
+        // tauri.conf*.json files set a "version" key (gemessen 28.09.2026).
+        let current_version = self.manager.package_info().version.to_string();
 
         let (should_emit, previous) = match self.get_last_seen_version() {
             Ok(Some(last_version)) if !last_version.is_empty() => {
@@ -296,18 +294,12 @@ impl<'a, R: tauri::Runtime, M: tauri::Manager<R>> Updater2<'a, R, M> {
     // is what prevents an install/relaunch loop, since the installed artifact
     // stays cached until check() prunes it.
     pub async fn install_and_relaunch(&self, version: &str) -> Result<(), crate::Error> {
-        let current = self.manager.config().version.clone().unwrap_or_default();
-        let is_newer = match (
-            semver::Version::parse(version),
-            semver::Version::parse(&current),
-        ) {
-            (Ok(cached), Ok(current)) => cached > current,
-            _ => false,
-        };
-        if !is_newer {
+        // package_info().version, not config().version -- see maybe_emit_updated().
+        let current = self.manager.package_info().version.clone();
+        if !is_cached_update_newer(version, &current)? {
             return Err(crate::Error::UpdateNotNewer {
                 version: version.to_string(),
-                current,
+                current: current.to_string(),
             });
         }
 
@@ -345,6 +337,22 @@ impl<R: tauri::Runtime, T: tauri::Manager<R>> Updater2PluginExt<R> for T {
             _runtime: std::marker::PhantomData,
         }
     }
+}
+
+// Pure comparison at the heart of install_and_relaunch()'s guard against an
+// install/relaunch loop. `current` is always a real version (it comes from
+// package_info(), which Tauri derives from Cargo.toml/package.json at build
+// time and can never be empty) -- so the only way this can fail is a `cached`
+// string that isn't valid semver, which is reported as its own error rather
+// than silently treated as "not newer" (that used to hide behind a `current`
+// that was silently empty, see CachedVersionInvalid).
+fn is_cached_update_newer(cached: &str, current: &semver::Version) -> Result<bool, crate::Error> {
+    let cached_version =
+        semver::Version::parse(cached).map_err(|source| crate::Error::CachedVersionInvalid {
+            version: cached.to_string(),
+            source,
+        })?;
+    Ok(&cached_version > current)
 }
 
 fn get_updates_dir<R: tauri::Runtime, M: tauri::Manager<R>>(manager: &M) -> Option<PathBuf> {
@@ -430,7 +438,77 @@ fn prune_updates_dir(dir: &Path, keep: Option<&str>) {
 
 #[cfg(test)]
 mod tests {
-    use super::{prune_updates_dir, verify_bytes_against_signature};
+    use super::{is_cached_update_newer, prune_updates_dir, verify_bytes_against_signature};
+
+    fn v(s: &str) -> semver::Version {
+        semver::Version::parse(s).unwrap()
+    }
+
+    // The red line for the "current is empty" bug (gemessen 28.09.2026 an
+    // einer echten 0.1.6-Installation): with the old config().version-based
+    // code, `current` fell back to an empty string whenever tauri.conf.json
+    // had no "version" key -- true for every one of our tauri.conf*.json
+    // files -- so "0.1.7" vs "" never parsed as newer and the restart
+    // silently refused with an empty "current" in the error message. This
+    // test is the rot-proof: it exercises exactly the comparison the old
+    // code got wrong, on a real (non-empty) current version.
+    #[test]
+    fn cached_release_newer_than_current_is_newer() {
+        assert!(is_cached_update_newer("0.1.7", &v("0.1.6")).unwrap());
+    }
+
+    #[test]
+    fn cached_release_equal_to_current_is_not_newer() {
+        assert!(!is_cached_update_newer("0.1.7", &v("0.1.7")).unwrap());
+    }
+
+    #[test]
+    fn cached_release_older_than_current_is_not_newer() {
+        assert!(!is_cached_update_newer("0.1.6", &v("0.1.7")).unwrap());
+    }
+
+    // An unparsable cached-version string is its own error, not a silent
+    // "not newer" -- it means the cache entry itself is corrupt, which is a
+    // different failure than "nothing new to install".
+    #[test]
+    fn unparsable_cached_version_is_its_own_error() {
+        let err = is_cached_update_newer("not-a-version", &v("0.1.7")).unwrap_err();
+        assert!(matches!(
+            err,
+            crate::Error::CachedVersionInvalid { version, .. } if version == "not-a-version"
+        ));
+    }
+
+    // The actual bug, reproduced against a real (mocked) Tauri app configured
+    // exactly like ours -- no "version" key in any tauri.conf*.json, which the
+    // release script never sets (it only writes Cargo.toml/package.json). Not
+    // a synthetic string: `context.package_info_mut()` and `config()` here are
+    // read through the same `Manager` trait methods the plugin code calls.
+    #[test]
+    fn our_real_app_config_has_no_version_but_package_info_does() {
+        let mut context = tauri::test::mock_context(tauri::test::noop_assets());
+        context.package_info_mut().version = v("0.1.6");
+        let app = tauri::test::mock_builder().build(context).unwrap();
+
+        // What the OLD code read: None, exactly as in our real tauri.conf.json.
+        assert_eq!(tauri::Manager::config(&app).version, None);
+
+        // The fallback that produced, and why it broke: an empty string is
+        // not valid semver, so the old `match (Version::parse(version),
+        // Version::parse(&current)) { ... _ => false }` silently treated
+        // "0.1.7 vs current" as "not newer" no matter what `version` was.
+        let old_current = tauri::Manager::config(&app)
+            .version
+            .clone()
+            .unwrap_or_default();
+        assert_eq!(old_current, "");
+        assert!(semver::Version::parse(&old_current).is_err());
+
+        // What the FIXED code reads instead: always a real, non-empty version.
+        let current = tauri::Manager::package_info(&app).version.clone();
+        assert_eq!(current, v("0.1.6"));
+        assert!(is_cached_update_newer("0.1.7", &current).unwrap());
+    }
 
     fn write_bins(dir: &std::path::Path, versions: &[&str]) {
         for v in versions {
