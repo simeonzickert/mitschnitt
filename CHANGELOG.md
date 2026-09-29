@@ -4,6 +4,18 @@ All notable changes to Mitschnitt. The format follows [Keep a Changelog](https:/
 
 Every version heading below is `## X.Y.Z (YYYY-MM-DD)`. `scripts/changelog-extract.sh` reads this file by that exact heading and by the `### What's new` / optional `### Note` subheadings underneath it to build the GitHub release notes and the in-app update notice — see that script's header comment for the contract. Before a release ships, its section here must exist and `### What's new` must not be empty, or `scripts/mitschnitt-release.sh` refuses to build.
 
+## 0.1.10 (2026-09-29)
+
+### Note
+
+Your Mac showed "Update failed: failed to unpack ._Mitschnitt.app"? This version fixes it and installs itself. Nothing to do.
+
+### What's new
+
+- **Fixed: Mac updates install again.** The 0.1.9 update package for macOS contained hidden macOS metadata files, and the updater refused to unpack it. The package is clean now, and the release script checks every package before it is published.
+
+All changes from 0.1.9 are included, see below.
+
 ## 0.1.9 (2026-09-28)
 
 ### What's new

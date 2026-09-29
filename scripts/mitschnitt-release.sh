@@ -46,6 +46,16 @@
 # ueberspringt beim Auspacken die erste Pfadkomponente jedes Eintrags. Eine ZIP-
 # Datei (wie ditto sie fuer die Notarisierung baut) waere hier falsch.
 #
+# APPLE-DOUBLE IM UPDATER-ARCHIV (gemessen 29.09.2026, erstes echtes Mac-Update
+# 0.1.8 -> 0.1.9): macOS-bsdtar schreibt beim Packen AppleDouble-Eintraege fuer
+# erweiterte Attribute mit (._Mitschnitt.app, Mitschnitt.app/._Contents, ... --
+# 56 von 112 Eintraegen). Das Archiv hat damit ZWEI Wurzeln; der Tauri-Updater
+# erwartet genau eine ("Mitschnitt.app") und starb mit "failed to unpack
+# ._Mitschnitt.app into .../tauri_updated_app.../". macOS-`tar -t` blendet
+# diese Eintraege beim Lesen aus, deshalb fiel es nie auf; Python `tarfile`
+# zeigt sie. Deshalb: COPYFILE_DISABLE=1 als Praefix UND --no-mac-metadata
+# (bsdtar-Schalter), und danach eine harte Pruefung mit python3 tarfile.
+#
 # Voraussetzungen:
 #   - Entwickler-ID im Schluesselbund (security find-identity -v -p codesigning)
 #   - Notarisierungs-Profil "mitschnitt-notar" (xcrun notarytool store-credentials)
@@ -500,9 +510,53 @@ log "Updater-Archiv aus dem notarisierten Bundle bauen"
 UPDATE_ARCHIVE="$OUT_DIR/$ARCHIV_NAME"
 rm -f "$UPDATE_ARCHIVE"
 # Das Archiv im tar nur "Mitschnitt.app" nennen (Updater-Format), die Datei
-# selbst aber hat den Ziel-spezifischen Namen
-tar -czf "$UPDATE_ARCHIVE" -C "$NOTAR_WORK" "Mitschnitt.app"
+# selbst aber hat den Ziel-spezifischen Namen.
+#
+# COPYFILE_DISABLE=1 UND --no-mac-metadata: macOS-bsdtar schreibt sonst
+# AppleDouble-Eintraege fuer erweiterte Attribute mit (._Mitschnitt.app,
+# Mitschnitt.app/._Contents, ...). Das Archiv haette dann ZWEI Wurzeln, und
+# der Tauri-Updater erwartet genau eine ("Mitschnitt.app") -- er starb mit
+# "failed to unpack ._Mitschnitt.app into .../tauri_updated_app.../"
+# (gemessen 29.09.2026, erstes echtes Mac-Update 0.1.8 -> 0.1.9). macOS-
+# `tar -t` blendet diese Eintraege beim Lesen aus, deshalb fiel es nie auf.
+COPYFILE_DISABLE=1 tar --no-mac-metadata -czf "$UPDATE_ARCHIVE" -C "$NOTAR_WORK" "Mitschnitt.app"
 [ -s "$UPDATE_ARCHIVE" ] || { echo "FEHLER: $UPDATE_ARCHIVE ist leer oder fehlt." >&2; exit 1; }
+
+log "Updater-Archiv pruefen (genau eine Wurzel, keine AppleDouble-Eintraege)"
+# NICHT mit `tar -t` pruefen: das blendet die AppleDouble-Eintraege aus und
+# waere hier still wirkungslos. Python `tarfile` zeigt sie. Jeder Eintrag muss
+# "Mitschnitt.app" sein oder mit "Mitschnitt.app/" beginnen, und kein
+# Pfadbestandteil darf mit "._" beginnen.
+python3 - "$UPDATE_ARCHIVE" <<'PY'
+import sys
+import tarfile
+
+archiv = sys.argv[1]
+falsch = []
+anzahl = 0
+with tarfile.open(archiv, "r:gz") as tf:
+    for member in tf:
+        anzahl += 1
+        name = member.name
+        teile = name.split("/")
+        if name != "Mitschnitt.app" and not name.startswith("Mitschnitt.app/"):
+            falsch.append(name)
+            continue
+        if any(t.startswith("._") for t in teile):
+            falsch.append(name)
+
+if falsch:
+    sys.stderr.write(
+        "FEHLER: %d von %d Eintraegen im Updater-Archiv sind keine "
+        "Mitschnitt.app-Pfade oder tragen AppleDouble-Namen (._*):\n"
+        % (len(falsch), anzahl)
+    )
+    for name in falsch[:5]:
+        sys.stderr.write("  %s\n" % name)
+    sys.exit(1)
+
+print("Updater-Archiv geprueft: %d Eintraege, genau eine Wurzel Mitschnitt.app." % anzahl)
+PY
 
 log "Updater-Archiv signieren (Minisign, derselbe Schluessel wie das eingebettete pubkey)"
 # Die Schluessel gehen NUR an den tauri signer sign-Aufruf, nicht an den Bau.
