@@ -455,6 +455,11 @@ pub const APP_MIGRATION_STEPS: &[anlg_db_migrate::MigrationStep] = &[
         scope: anlg_db_migrate::MigrationScope::Plain,
         sql: include_str!("../migrations/20260912120100_wahl_nach_vorlagen_drei.sql"),
     },
+    anlg_db_migrate::MigrationStep {
+        id: "20260913090000_kalender_dubletten_vereinigen",
+        scope: anlg_db_migrate::MigrationScope::Plain,
+        sql: include_str!("../migrations/20260913090000_kalender_dubletten_vereinigen.sql"),
+    },
 ];
 
 pub fn schema() -> anlg_db_migrate::DbSchema {

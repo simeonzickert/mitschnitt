@@ -4,6 +4,7 @@
 use sqlx::{Sqlite, SqlitePool, Transaction};
 
 mod conflict;
+mod kalender;
 mod run;
 mod types;
 
@@ -149,6 +150,40 @@ async fn insert_row_if_missing(
     transaction: &mut Transaction<'_, Sqlite>,
     row: &LegacyImportRow,
 ) -> Result<InsertOutcome, sqlx::Error> {
+    // Kalender und Termine des Imports werden gegen den Bestand erkannt, nicht
+    // nur ueber die ID (siehe kalender.rs).
+    let umgeleitet;
+    let row = match row {
+        LegacyImportRow::Calendar(calendar) => {
+            if kalender::adopt_existing_calendar(transaction, calendar).await? {
+                return Ok(InsertOutcome::Matched);
+            }
+            row
+        }
+        LegacyImportRow::Event(event) => match kalender::resolve_event(transaction, event).await? {
+            kalender::EventTarget::Twin(calendar_id) => {
+                kalender::insert_event_tombstone(transaction, event, &calendar_id).await?;
+                return Ok(InsertOutcome::Matched);
+            }
+            kalender::EventTarget::Insert(calendar_id) => {
+                umgeleitet = LegacyImportRow::Event(LegacyEvent {
+                    calendar_id,
+                    ..event.clone()
+                });
+                &umgeleitet
+            }
+        },
+        LegacyImportRow::Session(session) => {
+            match kalender::resolve_session_links(transaction, session).await? {
+                Some(session) => {
+                    umgeleitet = LegacyImportRow::Session(session);
+                    &umgeleitet
+                }
+                None => row,
+            }
+        }
+        _ => row,
+    };
     let result = match row {
         LegacyImportRow::Calendar(row) => sqlx::query(
             "INSERT INTO calendars \

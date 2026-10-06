@@ -20,6 +20,8 @@ Templates are cleaned up: three ship with the app (Standard, Kunden-Kickoff, Vor
 - **Local transcription keeps numbers.** Parakeet no longer drops digits.
 - **Cleaner provider lists.** Rarely used providers are collapsed under "More"; the selected and configured ones stay visible.
 - **Google and Outlook calendars.** The calendar step explains how to add them through macOS Internet Accounts, with a button that opens the right settings page.
+- **Fixed: adding a calendar did nothing.** In the downloaded app, the "+" next to Apple Calendar had no effect because macOS refused calendar and contacts access. Both permissions are now part of the app.
+- **Fixed: calendars listed twice.** After an import from anarlog, every calendar and some events appeared twice. This version merges the duplicates once, keeps your meetings linked to their events, and future imports no longer create them.
 - **Fixed:** Markdown export garbled text with umlauts before formatting characters; the editor could crash when a bullet followed a list; some cloud transcription responses with empty lists failed.
 - **Security:** updated editor and serialization libraries with published security fixes.
 

@@ -89,3 +89,19 @@ pub async fn delete_calendar(pool: &SqlitePool, id: &str) -> Result<(), sqlx::Er
 
     Ok(())
 }
+
+/// Die Bereinigung der Migration 20260913090000 (gleiche SQL-Datei, idempotent),
+/// in einer Transaktion. Laeuft am Ende jedes Imports: der Import kann
+/// Sitzungen mit alten IDs zurueckschreiben (juengere Quell-Sitzung gewinnt den
+/// Upsert) oder Grabsteine neu anlegen; danach zeigen Sitzungen wieder auf
+/// lebende Kalender und Termine, Dubletten sind vereint, Teilnehmerluecken
+/// gefuellt.
+pub async fn consolidate_calendar_duplicates(pool: &SqlitePool) -> Result<(), sqlx::Error> {
+    let mut transaction = pool.begin().await?;
+    sqlx::raw_sql(include_str!(
+        "../migrations/20260913090000_kalender_dubletten_vereinigen.sql"
+    ))
+    .execute(&mut *transaction)
+    .await?;
+    transaction.commit().await
+}

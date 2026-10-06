@@ -219,6 +219,7 @@ mod bitte_gegenpruefen;
 mod consent;
 mod disziplin_in_den_rahmen;
 mod entities;
+mod kalender_dubletten;
 mod migrations;
 mod mitschnitt_kompakt;
 mod mitschnitt_standard;

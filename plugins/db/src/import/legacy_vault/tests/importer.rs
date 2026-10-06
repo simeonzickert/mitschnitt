@@ -112,6 +112,9 @@ async fn shadow_import_is_non_destructive_idempotent_and_audited() {
     .unwrap();
 
     let source_before = std::fs::read(session_dir.join("_meta.json")).unwrap();
+    // Vorlagen und Grundeinstellungen kommen aus den Migrationen und aendern sich
+    // mit jedem Vorlagen-Schnitt; geprueft wird nur, was der Import beitraegt.
+    let templates_before = row_count(&db, "SELECT COUNT(*) FROM templates").await;
     import_legacy_vault(db.pool(), dir.path(), false)
         .await
         .unwrap();
@@ -149,10 +152,13 @@ async fn shadow_import_is_non_destructive_idempotent_and_audited() {
         ("daily_notes", "SELECT COUNT(*) FROM daily_notes", 1),
         ("chat_groups", "SELECT COUNT(*) FROM chat_groups", 1),
         ("chat_messages", "SELECT COUNT(*) FROM chat_messages", 1),
-        ("app_settings", "SELECT COUNT(*) FROM app_settings", 2),
+        // selected_template_id kommt aus den Migrationen (INSERT OR IGNORE,
+        // 20260902001100 / 20260904140100), dazu workspace-Bindung und
+        // legacy_settings_document aus dem Import.
+        ("app_settings", "SELECT COUNT(*) FROM app_settings", 3),
         ("calendars", "SELECT COUNT(*) FROM calendars", 1),
         ("events", "SELECT COUNT(*) FROM events", 1),
-        ("templates", "SELECT COUNT(*) FROM templates", 18),
+        ("templates", "SELECT COUNT(*) FROM templates", templates_before + 1),
     ] {
         assert_eq!(row_count(&db, query).await, expected, "{table}");
     }
