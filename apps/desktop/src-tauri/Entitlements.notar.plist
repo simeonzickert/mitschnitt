@@ -21,6 +21,17 @@
 	<key>com.apple.security.automation.apple-events</key>
 	<true/>
 	<!--
+	  Kalender und Kontakte, nachgetragen 06.10.2026: Unter Hardened Runtime
+	  lehnt macOS EventKit- und Contacts-Anfragen ohne diese Rechte still ab.
+	  Folge in 0.1.7 bis 0.1.10: der Kalender-Plus-Knopf tat bei notarisierten
+	  Installationen nichts (Rueckmeldung eines Testers). Lokale Baue ohne
+	  Hardened Runtime waren nicht betroffen.
+	-->
+	<key>com.apple.security.personal-information.calendars</key>
+	<true/>
+	<key>com.apple.security.personal-information.addressbook</key>
+	<true/>
+	<!--
 	  disable-library-validation, Entscheid des Eigentuemers 22.09.2026 („ok"):
 	  libmp3lame (LGPL-3.0) liegt als austauschbare Dylib in Contents/Frameworks.
 	  Ohne diese Ausnahme laedt Hardened Runtime nur Bibliotheken mit der
