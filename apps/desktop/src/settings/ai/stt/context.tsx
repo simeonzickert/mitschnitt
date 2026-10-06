@@ -14,6 +14,8 @@ import {
 } from "@anlg/plugin-local-stt";
 import { sonnerToast } from "@anlg/ui/components/ui/toast";
 
+import type { ProviderId } from "./shared";
+
 import { useToastAction } from "~/store/zustand/toast-action";
 
 type SttSettingsContextType = {
@@ -21,6 +23,10 @@ type SttSettingsContextType = {
   setAccordionValue: (value: string) => void;
   startDownload: (model: LocalModel) => void;
   queuedDownloads: LocalModel[];
+  // Provider picked in the dropdown that has no default model yet. Shared so
+  // the provider list can keep its card visible outside the folded group.
+  pendingProvider: ProviderId | null;
+  setPendingProvider: (provider: ProviderId | null) => void;
 };
 
 const SttSettingsContext = createContext<SttSettingsContextType | null>(null);
@@ -33,6 +39,9 @@ export function SttSettingsProvider({
   children: React.ReactNode;
 }) {
   const [accordionValue, setAccordionValue] = useState<string>("");
+  const [pendingProvider, setPendingProvider] = useState<ProviderId | null>(
+    null,
+  );
 
   const toastActionTarget = useToastAction((state) => state.target);
   const clearToastActionTarget = useToastAction((state) => state.clearTarget);
@@ -89,6 +98,8 @@ export function SttSettingsProvider({
         setAccordionValue,
         startDownload,
         queuedDownloads,
+        pendingProvider,
+        setPendingProvider,
       }}
     >
       {children}

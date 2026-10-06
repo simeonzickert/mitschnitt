@@ -265,10 +265,7 @@ async fn migrate_alone_leaves_a_lost_templates_table_without_the_upstream_seeds(
         .unwrap();
     assert_eq!(
         ids,
-        vec![
-            "mitschnitt-kompakt".to_string(),
-            "mitschnitt-standard".to_string()
-        ],
+        vec!["mitschnitt-kompakt".to_string()],
         "migrate allein spielt die Upstream-Seeds nicht nach -- das ist Sache von prepare_schema; \
          stehen bleiben nur die forkeigenen Vorlagen, deren Steps hier noch ausstehen"
     );

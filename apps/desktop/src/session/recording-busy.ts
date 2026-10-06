@@ -26,7 +26,11 @@ export function isRecordingBusyState(
 ): boolean {
   return (
     isBusyRecordingMode(state.getSessionMode(sessionId)) ||
-    (state.live.sessionId === sessionId && state.live.loading)
+    (state.live.sessionId === sessionId && state.live.loading) ||
+    // Just stopped, post-stop refinement still ahead: the mode already reads
+    // "inactive", but the transcript is about to be replaced (Fix-Runde B8).
+    Boolean(state.live.postStopProcessingBySession?.[sessionId]) ||
+    Boolean(state.live.batchTranscriptionPendingBySession?.[sessionId])
   );
 }
 
@@ -52,6 +56,12 @@ export function isAnyRecordingBusy(): boolean {
   }
   Object.keys(state.live.finalizingBySession).forEach((id) => candidateIds.add(id));
   Object.keys(state.batch).forEach((id) => candidateIds.add(id));
+  Object.keys(state.live.postStopProcessingBySession ?? {}).forEach((id) =>
+    candidateIds.add(id),
+  );
+  Object.keys(state.live.batchTranscriptionPendingBySession ?? {}).forEach(
+    (id) => candidateIds.add(id),
+  );
 
   for (const id of candidateIds) {
     if (isRecordingBusyState(state, id)) {

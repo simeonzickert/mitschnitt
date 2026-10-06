@@ -21,6 +21,7 @@ const mocks = vi.hoisted(() => ({
   sessionModes: {} as Record<string, string>,
   sessionEvents: {} as Record<string, any>,
   postStopProcessingBySession: {} as Record<string, boolean>,
+  batchTranscriptionPendingBySession: {} as Record<string, boolean>,
   nowMs: new Date("2026-06-05T09:50:00.000Z").getTime(),
   openUrl: vi.fn(),
   startListening: vi.fn(),
@@ -151,6 +152,8 @@ vi.mock("~/stt/contexts", () => ({
       stopTranscription: mocks.stopTranscription,
       live: {
         postStopProcessingBySession: mocks.postStopProcessingBySession,
+        batchTranscriptionPendingBySession:
+          mocks.batchTranscriptionPendingBySession,
       },
     }),
   ),
@@ -185,6 +188,7 @@ describe("OuterHeader", () => {
     mocks.sessionModes = {};
     mocks.sessionEvents = {};
     mocks.postStopProcessingBySession = {};
+    mocks.batchTranscriptionPendingBySession = {};
     mocks.nowMs = new Date("2026-06-05T09:50:00.000Z").getTime();
     mocks.openUrl.mockClear();
     mocks.startListening.mockClear();
@@ -1544,4 +1548,78 @@ describe("OuterHeader", () => {
       screen.getByRole("button", { name: "Open event metadata" }),
     ).not.toBeNull();
   });
+
+  it("shows transcript editing once recording stops, before the calendar event ends (Upstream #7645)", () => {
+    mocks.hasTranscriptBySession = { "session-1": true };
+    mocks.sessionEvents = {
+      "session-1": {
+        title: "Design Review",
+        started_at: "2026-06-05T10:00:00.000Z",
+        ended_at: "2026-06-05T11:00:00.000Z",
+      },
+    };
+    mocks.nowMs = new Date("2026-06-05T10:31:00.000Z").getTime();
+
+    render(
+      <OuterHeader
+        sessionId="session-1"
+        currentView={{ type: "transcript" } as EditorView}
+        onTranscriptEditModeChange={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "Edit" })).not.toBeNull();
+  });
+
+  it("keeps Resume next to Edit on the transcript tab after the stop, before and after the event end (ZICK-319)", () => {
+    mocks.hasTranscriptBySession = { "session-1": true };
+    mocks.sessionEvents = {
+      "session-1": {
+        title: "Design Review",
+        started_at: "2026-06-05T10:00:00.000Z",
+        ended_at: "2026-06-05T11:00:00.000Z",
+      },
+    };
+    mocks.nowMs = new Date("2026-06-05T10:31:00.000Z").getTime();
+    const props = {
+      sessionId: "session-1",
+      currentView: { type: "transcript" } as EditorView,
+      onTranscriptEditModeChange: vi.fn(),
+    };
+
+    const view = render(<OuterHeader {...props} />);
+    expect(screen.getByRole("button", { name: "Edit" })).not.toBeNull();
+    expect(screen.getByRole("button", { name: "Resume" })).not.toBeNull();
+
+    mocks.nowMs = new Date("2026-06-05T11:31:00.000Z").getTime();
+    view.rerender(<OuterHeader {...props} />);
+    expect(screen.getByRole("button", { name: "Edit" })).not.toBeNull();
+    expect(screen.getByRole("button", { name: "Resume" })).not.toBeNull();
+
+    view.rerender(<OuterHeader {...props} transcriptEditMode />);
+    expect(screen.getByRole("button", { name: "Done" })).not.toBeNull();
+    expect(screen.queryByRole("button", { name: "Resume" })).toBeNull();
+  });
+
+  it.each([
+    ["postStopProcessing", "postStopProcessingBySession"],
+    ["a pending batch", "batchTranscriptionPendingBySession"],
+  ] as const)(
+    "offers no transcript editing during %s, but keeps Resume (Fix-Runde B, ZICK-319)",
+    (_label, key) => {
+      mocks.hasTranscriptBySession = { "session-1": true };
+      mocks[key] = { "session-1": true };
+
+      render(
+        <OuterHeader
+          sessionId="session-1"
+          currentView={{ type: "transcript" } as EditorView}
+          onTranscriptEditModeChange={vi.fn()}
+        />,
+      );
+
+      expect(screen.queryByRole("button", { name: "Edit" })).toBeNull();
+      expect(screen.getByRole("button", { name: "Resume" })).not.toBeNull();
+    },
+  );
 });

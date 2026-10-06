@@ -41,6 +41,10 @@ import {
   subscribeCanonicalSessionImportLocks,
 } from "~/session/editor-activity";
 import { useSession } from "~/session/queries";
+import {
+  useEndEditModeHotkeys,
+  useEndEditModeWhenLocked,
+} from "~/session/transcript-edit-lifecycle";
 import { useMountEffect } from "~/shared/hooks/useMountEffect";
 import { type Tab, useTabs } from "~/store/zustand/tabs";
 import { useListener } from "~/stt/contexts";
@@ -312,6 +316,25 @@ function TabContentNoteInner({
     },
     [sessionId],
   );
+
+  const endTranscriptEditMode = React.useCallback(
+    () => handleTranscriptEditModeChange(false),
+    [handleTranscriptEditModeChange],
+  );
+  useEndEditModeWhenLocked({
+    sessionId,
+    editMode: transcriptEditMode,
+    endEditMode: endTranscriptEditMode,
+  });
+
+  useEndEditModeHotkeys({
+    enabled:
+      tab.active &&
+      !lockOverlay &&
+      currentView.type === "transcript" &&
+      transcriptEditMode,
+    endEditMode: endTranscriptEditMode,
+  });
   return (
     <>
       <SessionSurface
@@ -377,6 +400,7 @@ function TabContentNoteInner({
                 handleTabChange={handleTabChange}
                 sessionMode={sessionMode}
                 transcriptEditMode={transcriptEditMode}
+                onTranscriptEditModeChange={handleTranscriptEditModeChange}
                 hideHeader
               />
             ) : (

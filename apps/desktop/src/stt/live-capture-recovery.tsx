@@ -161,6 +161,11 @@ function LiveCaptureSessionRecovery({
         result = "error";
       }
       if (!active) {
+        // Unmounted while this attempt was in flight. A failed attempt keeps
+        // its lease for a retry that will now never come: give it back.
+        if (result === "error") {
+          resumeListeningLifecycle.releaseRecoveryLease();
+        }
         return;
       }
       if (result === "error") {
@@ -168,11 +173,15 @@ function LiveCaptureSessionRecovery({
           console.warn("[listener] capture recovery retry budget exhausted", {
             sessionId,
           });
+          // No further attempt will run: give back a lease a throwing attempt
+          // may still hold, or editing and deleting stay locked until restart.
+          resumeListeningLifecycle.releaseRecoveryLease();
           onComplete(sessionId, recoveryToken);
           return;
         }
         retryTimer = setTimeout(
           () => {
+            retryTimer = undefined;
             void recover(attempt + 1);
           },
           CAPTURE_RECOVERY_BASE_RETRY_MS * 2 ** (attempt - 1),
@@ -187,7 +196,13 @@ function LiveCaptureSessionRecovery({
     return () => {
       active = false;
       if (retryTimer) {
+        // Walking away between two attempts: nothing is in flight, so the
+        // lease the failed attempt kept for its retry goes back. Without it a
+        // replacement run (restart request) cannot take it and the session
+        // stays blocked until a deliberate resume abandons it.
         clearTimeout(retryTimer);
+        retryTimer = undefined;
+        resumeListeningLifecycle.releaseRecoveryLease();
       }
     };
   }, [onComplete, recoveryToken, resumeListeningLifecycle, sessionId]);

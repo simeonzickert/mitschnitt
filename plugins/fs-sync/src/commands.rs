@@ -5,6 +5,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use rayon::prelude::*;
 use serde_json::Value;
+use tauri::Manager;
 use tauri_plugin_notify::{MAX_OWN_WRITES_PER_BATCH, NotifyPluginExt};
 use tauri_plugin_settings::SettingsPluginExt;
 
@@ -270,7 +271,9 @@ pub(crate) async fn audio_delete<R: tauri::Runtime>(
     session_id: String,
 ) -> Result<bool, String> {
     let session_dir = resolve_session_dir(&app, &session_id)?;
-    crate::audio::delete(&session_dir).map_err(|e| e.to_string())
+    let deleted = crate::audio::delete(&session_dir).map_err(|e| e.to_string())?;
+    remove_audio_peaks_cache(&app, &session_id);
+    Ok(deleted)
 }
 
 #[tauri::command]
@@ -293,7 +296,7 @@ pub(crate) async fn audio_delete_orphaned_expired<R: tauri::Runtime>(
 ) -> Result<Vec<String>, String> {
     let base = app.settings().vault_base().map_err(|e| e.to_string())?;
     let sessions_dir = base.join("sessions").into_std_path_buf();
-    spawn_blocking!({
+    let deleted = spawn_blocking!({
         crate::audio::delete_orphaned_expired(
             &sessions_dir,
             &known_session_ids,
@@ -301,7 +304,11 @@ pub(crate) async fn audio_delete_orphaned_expired<R: tauri::Runtime>(
             now_ms,
         )
         .map_err(|e| e.to_string())
-    })
+    })?;
+    for session_id in &deleted {
+        remove_audio_peaks_cache(&app, session_id);
+    }
+    Ok(deleted)
 }
 
 #[tauri::command]
@@ -430,6 +437,39 @@ pub(crate) async fn audio_path<R: tauri::Runtime>(
 
 #[tauri::command]
 #[specta::specta]
+pub(crate) async fn audio_peaks<R: tauri::Runtime>(
+    app: tauri::AppHandle<R>,
+    session_id: String,
+) -> Result<crate::audio::AudioPeaks, String> {
+    let session_dir = resolve_session_dir(&app, &session_id)?;
+    let cache_path = audio_peaks_cache_path(&app, &session_id)?;
+    spawn_blocking!({
+        let path = crate::audio::path(&session_dir).ok_or("audio_path_not_found")?;
+        crate::audio::cached_peaks(&path, &cache_path).map_err(|e| e.to_string())
+    })
+}
+
+fn remove_audio_peaks_cache<R: tauri::Runtime>(app: &tauri::AppHandle<R>, session_id: &str) {
+    if let Ok(cache_path) = audio_peaks_cache_path(app, session_id) {
+        let _ = std::fs::remove_file(cache_path);
+    }
+}
+
+fn audio_peaks_cache_path<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
+    session_id: &str,
+) -> Result<PathBuf, String> {
+    if !crate::is_uuid(session_id) {
+        return Err("invalid_session_id".to_string());
+    }
+    let cache_dir = app.path().app_cache_dir().map_err(|e| e.to_string())?;
+    Ok(cache_dir
+        .join("audio-peaks")
+        .join(format!("{session_id}.json")))
+}
+
+#[tauri::command]
+#[specta::specta]
 pub(crate) async fn audio_copy<R: tauri::Runtime>(
     app: tauri::AppHandle<R>,
     source_session_id: String,
@@ -470,7 +510,9 @@ pub(crate) async fn delete_session_folder<R: tauri::Runtime>(
     session_id: String,
 ) -> Result<(), String> {
     let session_dir = resolve_session_dir(&app, &session_id)?;
-    crate::session::delete_session_dir(&session_dir).map_err(|e| e.to_string())
+    crate::session::delete_session_dir(&session_dir).map_err(|e| e.to_string())?;
+    remove_audio_peaks_cache(&app, &session_id);
+    Ok(())
 }
 
 #[tauri::command]

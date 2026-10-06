@@ -13,7 +13,7 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import { platform } from "@tauri-apps/plugin-os";
-import { useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 
 import {
   commands as localSttCommands,
@@ -50,6 +50,7 @@ import {
   getDefaultSttSelection,
   getLanguageSupportIssue,
   resolveLiveLanguageSupportMode,
+  resolvePendingProvider,
 } from "./selection";
 import {
   displayModelLabel,
@@ -171,11 +172,12 @@ export function SelectProviderAndModel() {
   ] as const);
   const { providers: configuredProviders, isReady: providerSettingsReady } =
     useConfiguredMapping();
-  const { startDownload } = useSttSettings();
+  const {
+    startDownload,
+    pendingProvider: storedPendingProvider,
+    setPendingProvider,
+  } = useSttSettings();
   const health = useConnectionHealth();
-  const [pendingProvider, setPendingProvider] = useState<ProviderId | null>(
-    null,
-  );
 
   const selectedSttModel = isConfiguredSttModel(
     current_stt_provider,
@@ -184,6 +186,17 @@ export function SelectProviderAndModel() {
     ? current_stt_model
     : undefined;
   const selectedProvider = current_stt_provider as ProviderId | undefined;
+  const pendingProvider = resolvePendingProvider(
+    storedPendingProvider,
+    current_stt_provider,
+    selectedSttModel,
+  );
+  useEffect(() => {
+    // Drop a stale pending provider (its model was saved elsewhere).
+    if (storedPendingProvider && !pendingProvider) {
+      setPendingProvider(null);
+    }
+  }, [storedPendingProvider, pendingProvider, setPendingProvider]);
   const selectedProviderConfigured = selectedProvider
     ? (configuredProviders[selectedProvider]?.configured ?? false)
     : false;
@@ -337,8 +350,7 @@ export function SelectProviderAndModel() {
                         key={provider.id}
                         provider={provider}
                         configured={
-                          configuredProviders[provider.id]?.configured ??
-                          false
+                          configuredProviders[provider.id]?.configured ?? false
                         }
                       />
                     ))}
@@ -370,8 +382,7 @@ export function SelectProviderAndModel() {
                         key={provider.id}
                         provider={provider}
                         configured={
-                          configuredProviders[provider.id]?.configured ??
-                          false
+                          configuredProviders[provider.id]?.configured ?? false
                         }
                       />
                     ))}

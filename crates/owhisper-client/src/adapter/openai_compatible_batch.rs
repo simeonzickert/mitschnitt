@@ -117,9 +117,9 @@ pub(crate) async fn transcribe(
 struct CompatibleResponse {
     #[serde(default)]
     text: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_null_as_default")]
     words: Vec<CompatibleWord>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_null_as_default")]
     segments: Vec<CompatibleSegment>,
 }
 
@@ -131,7 +131,7 @@ struct CompatibleSegment {
     start: f64,
     #[serde(default)]
     end: f64,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_null_as_default")]
     words: Vec<CompatibleWord>,
 }
 
@@ -151,6 +151,16 @@ struct CompatibleWord {
 
 fn default_confidence() -> f64 {
     1.0
+}
+
+/// `#[serde(default)]` only covers a missing field; some providers (e.g. Groq)
+/// send an explicit `null` instead.
+fn deserialize_null_as_default<'de, D, T>(deserializer: D) -> Result<T, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: Default + Deserialize<'de>,
+{
+    Ok(Option::<T>::deserialize(deserializer)?.unwrap_or_default())
 }
 
 fn deserialize_optional_speaker<'de, D>(deserializer: D) -> Result<Option<usize>, D::Error>
@@ -257,6 +267,34 @@ mod tests {
 
         assert_eq!(word_alternative.transcript, "Hello world.");
         assert_eq!(word_alternative.words[1].speaker, Some(2));
+        assert_eq!(segment_alternative.transcript, "Fallback segment.");
+        assert_eq!(segment_alternative.words[0].start, 1.0);
+    }
+
+    #[test]
+    fn accepts_null_list_fields() {
+        // Groq returns `"segments": null` for verbose_json requests that only
+        // ask for word timestamps.
+        let payload: CompatibleResponse = serde_json::from_value(serde_json::json!({
+            "task": "transcribe",
+            "text": "Hello world.",
+            "words": [{ "word": "Hello", "start": 0.0, "end": 0.4 }],
+            "segments": null
+        }))
+        .unwrap();
+        let segment_payload: CompatibleResponse = serde_json::from_value(serde_json::json!({
+            "words": null,
+            "segments": [{ "text": "Fallback segment.", "start": 1.0, "end": 2.0, "words": null }]
+        }))
+        .unwrap();
+
+        let response = convert_response("groq", payload);
+        let segment_response = convert_response("groq", segment_payload);
+        let alternative = &response.results.channels[0].alternatives[0];
+        let segment_alternative = &segment_response.results.channels[0].alternatives[0];
+
+        assert_eq!(alternative.transcript, "Hello world.");
+        assert_eq!(alternative.words.len(), 1);
         assert_eq!(segment_alternative.transcript, "Fallback segment.");
         assert_eq!(segment_alternative.words[0].start, 1.0);
     }

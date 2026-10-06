@@ -21,6 +21,7 @@ import {
   useSaveTemplate,
   useToggleTemplateFavorite,
 } from "./queries";
+import { DEFAULT_TEMPLATE_ID } from "./default-template-id";
 import { SectionsList } from "./sections-editor";
 import { TemplateIconPicker } from "./template-icon-picker";
 
@@ -158,6 +159,8 @@ export function TemplateForm({
 
   const selectedTemplateId = useConfigValue("selected_template_id");
   const isDefault = selectedTemplateId === id;
+  // „Standard“ ist die Voreinstellung ohne Wahl; der Schalter entfällt dort.
+  const isBuiltInDefault = id === DEFAULT_TEMPLATE_ID;
 
   const setDefaultTemplateId = useSetSettingValue("selected_template_id");
   const setSelectedTemplateId = () => {
@@ -225,29 +228,31 @@ export function TemplateForm({
           </form.Field>
         </div>
         <div className="flex items-center gap-0">
-          <Button
-            type="button"
-            size="sm"
-            variant="ghost"
-            onClick={setSelectedTemplateId}
-            aria-pressed={isDefault}
-            title={isDefault ? "Remove as default" : "Set as default"}
-            className={cn([
-              "text-muted-foreground shrink-0 hover:text-black",
-              isDefault
-                ? "text-emerald-600 hover:bg-transparent hover:text-emerald-700 dark:text-emerald-400 dark:hover:text-emerald-300"
-                : null,
-            ])}
-          >
-            {isDefault ? (
-              <>
-                <Check className="size-3.5" weight="bold" />
-                Current default
-              </>
-            ) : (
-              "Set as default"
-            )}
-          </Button>
+          {isBuiltInDefault ? null : (
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              onClick={setSelectedTemplateId}
+              aria-pressed={isDefault}
+              title={isDefault ? "Remove as default" : "Set as default"}
+              className={cn([
+                "text-muted-foreground shrink-0 hover:text-black",
+                isDefault
+                  ? "text-emerald-600 hover:bg-transparent hover:text-emerald-700 dark:text-emerald-400 dark:hover:text-emerald-300"
+                  : null,
+              ])}
+            >
+              {isDefault ? (
+                <>
+                  <Check className="size-3.5" weight="bold" />
+                  Current default
+                </>
+              ) : (
+                "Set as default"
+              )}
+            </Button>
+          )}
           <Button
             type="button"
             size="icon"

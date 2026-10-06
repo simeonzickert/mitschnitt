@@ -1,4 +1,4 @@
-import { t } from "@lingui/core/macro";
+import { plural, t } from "@lingui/core/macro";
 import { ArrowDown, ArrowUp } from "@phosphor-icons/react";
 import {
   type MouseEvent as ReactMouseEvent,
@@ -9,11 +9,14 @@ import {
   useRef,
   useState,
 } from "react";
+import { flushSync } from "react-dom";
 import { useHotkeys } from "react-hotkeys-hook";
 
+import { sonnerToast } from "@anlg/ui/components/ui/toast";
 import { cn } from "@anlg/utils";
 
 import {
+  focusTranscriptSelection,
   getTranscriptContextSelection,
   getTranscriptMergeTarget,
   getTranscriptSectionKeyFromElement,
@@ -37,11 +40,14 @@ import {
 } from "./viewport-hooks";
 
 import { useAudioPlayer } from "~/audio-player";
+import { guardUserTranscriptMutation } from "~/session/transcript-editable";
 import { useAudioTime } from "~/audio-player/provider";
 import type { Segment } from "~/stt/live-segment";
 import {
   assignTranscriptSpeaker,
+  clearTranscriptWordTexts,
   mergeTranscriptSegments,
+  restoreTranscriptWordTexts,
 } from "~/stt/queries";
 
 const LIVE_TRANSCRIPT_PLACEHOLDER_ID = "__live-transcript__";
@@ -53,6 +59,7 @@ export function TranscriptViewer({
   captureGeneration = 0,
   scrollRef,
   editMode = false,
+  onEditModeChange,
 }: {
   transcriptIds: string[];
   liveSegments: Segment[];
@@ -60,6 +67,7 @@ export function TranscriptViewer({
   captureGeneration?: number;
   scrollRef: RefObject<HTMLDivElement | null>;
   editMode?: boolean;
+  onEditModeChange?: (editMode: boolean) => void;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [scrollElement, setScrollElement] = useState<HTMLDivElement | null>(
@@ -166,25 +174,66 @@ export function TranscriptViewer({
     [audioExists, seek, start],
   );
   const handleAssignSpeaker = useCallback(
-    async (selection: TranscriptWordSelection, humanId: string) => {
-      await preserveScrollPosition(containerRef.current, () =>
-        Promise.all(
-          selection.groups.map((group) =>
-            assignTranscriptSpeaker({
-              transcriptId: group.transcriptId,
-              segmentKey: group.segmentKey,
-              humanId,
-              anchorWordId: group.wordIds[0]!,
-              mode: "segment",
-              wordIds: group.wordIds,
-            }),
+    async (
+      selection: TranscriptWordSelection,
+      humanId: string,
+      extendToAdjacent?: boolean,
+    ): Promise<boolean> => {
+      try {
+        const outcome = await preserveScrollPosition(containerRef.current, () =>
+          guardUserTranscriptMutation(selection.sessionId, () =>
+            Promise.all(
+              selection.groups.map((group) =>
+                assignTranscriptSpeaker({
+                  transcriptId: group.transcriptId,
+                  segmentKey: group.segmentKey,
+                  humanId,
+                  anchorWordId: group.wordIds[0]!,
+                  mode: "segment",
+                  wordIds: group.wordIds,
+                  extendToAdjacent,
+                }),
+              ),
+            ),
           ),
-        ),
-      );
+        );
+        return outcome.allowed;
+      } catch (error) {
+        console.error("[transcript] failed to assign speaker", error);
+        sonnerToast.error(t`Could not assign the speaker`);
+        return false;
+      }
     },
     [],
   );
-  const handleMergeSegments = useCallback(async () => {
+  const handleEditSelection = useCallback(
+    (selection: TranscriptWordSelection) => {
+      flushSync(() => onEditModeChange?.(true));
+      if (containerRef.current) {
+        focusTranscriptSelection(selection, containerRef.current);
+      }
+    },
+    [onEditModeChange],
+  );
+  const handleChangeSpeakerSelection = useCallback(
+    (selection: TranscriptWordSelection) => {
+      flushSync(() => onEditModeChange?.(true));
+      const container = containerRef.current;
+      if (!container) return;
+      const editor = focusTranscriptSelection(selection, container);
+      if (!editor) return;
+      window.getSelection()?.collapseToStart();
+      editor.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "Enter",
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    },
+    [onEditModeChange],
+  );
+  const handleMergeSegments = useCallback(async (): Promise<boolean> => {
     const { order, entries } = collectEntries(visibleTranscriptIdsRef.current);
     const target = getTranscriptMergeTarget(
       new Set(selectedEntries.keys()),
@@ -194,24 +243,125 @@ export function TranscriptViewer({
     const targetGroup = target?.groups[0];
     const selection = mergeTranscriptSelections([...selectedEntries.values()]);
     if (!targetGroup || !selection) {
-      return;
+      return false;
     }
 
     const groups = selection.groups.filter(
       (group) => group.transcriptId === targetGroup.transcriptId,
     );
-    await preserveScrollPosition(containerRef.current, () =>
-      Promise.all(
-        groups.map((group) =>
-          mergeTranscriptSegments({
-            transcriptId: group.transcriptId,
-            segmentKey: targetGroup.segmentKey,
-            wordIds: group.wordIds,
-          }),
+    try {
+      const outcome = await preserveScrollPosition(containerRef.current, () =>
+        guardUserTranscriptMutation(selection.sessionId, () =>
+          Promise.all(
+            groups.map((group) =>
+              mergeTranscriptSegments({
+                transcriptId: group.transcriptId,
+                segmentKey: targetGroup.segmentKey,
+                wordIds: group.wordIds,
+              }),
+            ),
+          ),
         ),
-      ),
-    );
+      );
+      return outcome.allowed;
+    } catch (error) {
+      console.error("[transcript] failed to merge blocks", error);
+      sonnerToast.error(t`The blocks could not be merged`);
+      return false;
+    }
   }, [collectEntries, selectedEntries]);
+  const handleDeleteSelection = useCallback(
+    async (selection: TranscriptWordSelection): Promise<boolean> => {
+      const wordsByTranscript = new Map<string, Set<string>>();
+      for (const group of selection.groups) {
+        const wordIds =
+          wordsByTranscript.get(group.transcriptId) ?? new Set<string>();
+        group.wordIds.forEach((wordId) => wordIds.add(wordId));
+        wordsByTranscript.set(group.transcriptId, wordIds);
+      }
+      const outcome = await preserveScrollPosition(containerRef.current, () =>
+        guardUserTranscriptMutation(selection.sessionId, () =>
+          Promise.allSettled(
+            [...wordsByTranscript].map(async ([transcriptId, wordIds]) => ({
+              transcriptId,
+              texts: await clearTranscriptWordTexts({
+                transcriptId,
+                wordIds: [...wordIds],
+              }),
+            })),
+          ),
+        ),
+      );
+      if (!outcome.allowed) {
+        return false;
+      }
+      const results = outcome.value;
+      const failed = results.filter((result) => result.status === "rejected");
+      const cleared = results.flatMap((result) =>
+        result.status === "fulfilled" ? [result.value] : [],
+      );
+      const restorable = cleared.filter(
+        ({ texts }) => Object.keys(texts).length > 0,
+      );
+      if (failed.length > 0) {
+        console.error("[transcript] failed to delete blocks", failed);
+        sonnerToast.error(t`Some blocks could not be deleted`);
+      }
+      if (cleared.length === 0 && failed.length > 0) {
+        // Every deletion failed: nothing happened, keep the selection.
+        return false;
+      }
+      if (restorable.length === 0) {
+        if (failed.length === 0) {
+          sonnerToast(t`Nothing was deleted: the blocks no longer exist`);
+        }
+        return true;
+      }
+      // The deleted words keep their ids, timing and speaker hints; only the
+      // text is blanked, so undo writes the remembered texts back.
+      const expected = restorable.reduce(
+        (sum, { texts }) => sum + Object.keys(texts).length,
+        0,
+      );
+      const count = selection.groups.length;
+      sonnerToast(
+        plural(count, {
+          one: "# block deleted",
+          other: "# blocks deleted",
+        }),
+        {
+          action: {
+            label: t`Undo`,
+            onClick: () => {
+              void guardUserTranscriptMutation(selection.sessionId, () =>
+                Promise.allSettled(
+                  restorable.map(({ transcriptId, texts }) =>
+                    restoreTranscriptWordTexts({ transcriptId, texts }),
+                  ),
+                ),
+              )
+                .then((undone) => {
+                  if (!undone.allowed) return;
+                  const restored = undone.value.reduce(
+                    (sum, result) =>
+                      sum + (result.status === "fulfilled" ? result.value : 0),
+                    0,
+                  );
+                  if (restored < expected) {
+                    sonnerToast.error(
+                      t`${restored} of ${expected} words restored`,
+                    );
+                  }
+                })
+                .catch(() => sonnerToast.error(t`Could not undo the deletion`));
+            },
+          },
+        },
+      );
+      return true;
+    },
+    [],
+  );
   const canMergeSelection = useMemo(() => {
     if (selectedEntries.size < 2) {
       return false;
@@ -270,6 +420,38 @@ export function TranscriptViewer({
       clearSelectedEntries();
     },
     { enabled: editMode && selectedEntries.size > 0 },
+  );
+
+  useHotkeys(
+    "mod+shift+up, mod+shift+down",
+    (event) => {
+      if (
+        event.target instanceof Element &&
+        event.target.closest("[data-transcript-editor], [contenteditable=true]")
+      ) {
+        return;
+      }
+      const { order, entries } = collectEntries(
+        visibleTranscriptIdsRef.current,
+      );
+      const anchorIndex = selectionAnchor ? order.indexOf(selectionAnchor) : -1;
+      if (anchorIndex === -1) {
+        return;
+      }
+
+      event.preventDefault();
+      window.getSelection()?.removeAllRanges();
+      const keys =
+        event.key === "ArrowUp"
+          ? order.slice(0, anchorIndex + 1)
+          : order.slice(anchorIndex);
+      setSelectedEntries(new Map(keys.map((key) => [key, entries.get(key)!])));
+    },
+    {
+      enabled: editMode && selectedEntries.size > 0,
+      enableOnFormTags: false,
+      enableOnContentEditable: false,
+    },
   );
 
   const handleSegmentSelection = useCallback(
@@ -365,6 +547,16 @@ export function TranscriptViewer({
           data-transcript-container
           data-transcript-select-mode={selectMode ? "true" : undefined}
           onClickCapture={handleSegmentSelection}
+          onFocusCapture={(event) => {
+            // Typing into a block ends the block selection.
+            if (
+              selectedEntries.size > 0 &&
+              event.target instanceof Element &&
+              event.target.closest("[data-transcript-editor]")
+            ) {
+              clearSelectedEntries();
+            }
+          }}
           onContextMenu={handleContextMenu}
           className={cn([
             "flex min-h-0 min-w-0 flex-1 flex-col gap-8 overflow-x-clip overflow-y-auto",
@@ -404,7 +596,10 @@ export function TranscriptViewer({
             audioExists={audioExists}
             onContextClose={handleContextClose}
             onAction={handleSelectionAction}
-            onAssignSpeaker={handleAssignSpeaker}
+            onEdit={onEditModeChange ? handleEditSelection : undefined}
+            onChangeSpeaker={
+              onEditModeChange ? handleChangeSpeakerSelection : undefined
+            }
           />
         </div>
 
@@ -416,6 +611,9 @@ export function TranscriptViewer({
             onClear={clearSelectedEntries}
             onAssignSpeaker={handleAssignSpeaker}
             onMerge={handleMergeSegments}
+            onDelete={
+              editMode && !currentActive ? handleDeleteSelection : undefined
+            }
           />
         )}
 

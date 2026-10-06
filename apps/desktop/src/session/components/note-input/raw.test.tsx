@@ -447,7 +447,6 @@ describe("RawEditor", () => {
     expect(buttons.map((button) => button.textContent)).toEqual([
       "Template iconProject Kickoff",
       "Template iconDaily Standup",
-      "Template icon1:1 Meeting",
       "New template",
     ]);
     expect(screen.queryByRole("button", { name: "Board Meeting" })).toBeNull();
@@ -616,46 +615,7 @@ describe("RawEditor", () => {
       screen.getAllByRole("button").map((button) => button.textContent),
     ).toEqual([
       "Template iconSales Discovery Call",
-      "Template icon1:1 Meeting",
       "Template iconProject Kickoff",
-      "New template",
-    ]);
-  });
-
-  it("prioritizes one-on-one notes for two-person events", () => {
-    hoisted.eventParticipants = [
-      { name: "John", is_current_user: true },
-      { name: "Ada", is_current_user: false },
-    ];
-    hoisted.userTemplates = [
-      {
-        id: "default-daily-standup",
-        title: "Daily Standup",
-        pinned: false,
-        sections: [{ title: "Today", description: "" }],
-      },
-      {
-        id: "default-project-kickoff",
-        title: "Project Kickoff",
-        pinned: false,
-        sections: [{ title: "Goals", description: "" }],
-      },
-      {
-        id: "default-one-on-one-meeting",
-        title: "1:1 Meeting",
-        pinned: false,
-        sections: [{ title: "Updates", description: "" }],
-      },
-    ];
-
-    render(<RawEditor sessionId="session-1" eventTitle="Weekly catch-up" />);
-
-    expect(
-      screen.getAllByRole("button").map((button) => button.textContent),
-    ).toEqual([
-      "Template icon1:1 Meeting",
-      "Template iconProject Kickoff",
-      "Template iconDaily Standup",
       "New template",
     ]);
   });

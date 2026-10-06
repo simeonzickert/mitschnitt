@@ -295,7 +295,29 @@ async fn nach_einer_reparatur_ist_der_abschnitt_weiterhin_weg() {
 
     prepare_schema(&db).await.unwrap();
 
-    for (id, erwartet) in NACH_DEM_STEP {
+    // Endstand nach Runde 2 (20260912120000): Kickoff 11 und Vortrag 7
+    // Abschnitte; das 1:1 ist weg. Der gestrichene Abschnitt bleibt in allen weg.
+    for (id, erwartet) in NACH_DEM_STEP.map(|(id, n)| {
+        (
+            id,
+            match id {
+                "default-client-kickoff" => 11,
+                "default-lecture-notes" => 7,
+                _ => n,
+            },
+        )
+    }) {
+        // Der Schnitt vom 06.10.2026 (20260911120000) entfernt drei der
+        // sieben; die vier uebrigen muessen weiterhin ohne den Abschnitt stehen.
+        let vorhanden: bool =
+            sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM templates WHERE id = ?)")
+                .bind(id)
+                .fetch_one(db.pool())
+                .await
+                .unwrap();
+        if !vorhanden {
+            continue;
+        }
         let (_, description, sections_json) = vorlage(&db, id).await;
         let titel = abschnittstitel(&sections_json);
         assert!(

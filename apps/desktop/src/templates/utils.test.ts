@@ -5,6 +5,7 @@ import type { UserTemplate } from "./queries";
 import { DEFAULT_TEMPLATE_ICON } from "./template-icon";
 import {
   AUTO_TEMPLATE_ID,
+  DEFAULT_TEMPLATE_ID,
   filterWebTemplatesAgainstUserTemplates,
   resolveTemplateTabSelection,
 } from "./utils";
@@ -39,7 +40,7 @@ describe("resolveTemplateTabSelection", () => {
       }),
     ).toEqual({
       isWebMode: false,
-      selectedMineId: AUTO_TEMPLATE_ID,
+      selectedMineId: null,
       selectedWebIndex: null,
       selectedWebTemplate: null,
     });
@@ -79,7 +80,24 @@ describe("resolveTemplateTabSelection", () => {
     });
   });
 
-  it("preserves an explicit Auto selection when local templates exist", () => {
+  it("maps a stored Auto selection to the Standard template", () => {
+    const standard = {
+      ...userTemplate,
+      id: DEFAULT_TEMPLATE_ID,
+      title: "Standard",
+    };
+    expect(
+      resolveTemplateTabSelection({
+        isWebMode: false,
+        selectedMineId: AUTO_TEMPLATE_ID,
+        selectedWebIndex: null,
+        userTemplates: [userTemplate, standard],
+        webTemplates: [webTemplate],
+      }).selectedMineId,
+    ).toBe(DEFAULT_TEMPLATE_ID);
+  });
+
+  it("maps a stored Auto selection to the first template when Standard is gone", () => {
     expect(
       resolveTemplateTabSelection({
         isWebMode: false,
@@ -87,13 +105,8 @@ describe("resolveTemplateTabSelection", () => {
         selectedWebIndex: null,
         userTemplates: [userTemplate],
         webTemplates: [webTemplate],
-      }),
-    ).toEqual({
-      isWebMode: false,
-      selectedMineId: AUTO_TEMPLATE_ID,
-      selectedWebIndex: null,
-      selectedWebTemplate: null,
-    });
+      }).selectedMineId,
+    ).toBe("template-1");
   });
 });
 

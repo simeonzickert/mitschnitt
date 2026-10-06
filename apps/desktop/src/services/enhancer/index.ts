@@ -23,6 +23,10 @@ import {
   type TasksActions,
 } from "~/store/zustand/ai-task/tasks";
 import { listenerStore } from "~/store/zustand/listener/instance";
+import {
+  AUTO_TEMPLATE_ID,
+  DEFAULT_TEMPLATE_ID,
+} from "~/templates/default-template-id";
 import { getTemplateById } from "~/templates/queries";
 
 type EnhanceResult =
@@ -184,7 +188,12 @@ function resolveTemplateId(
     return opts.templateId || undefined;
   }
 
-  return memoTemplateId || getSelectedTemplateId();
+  // Ohne Wahl gilt „Standard“ statt des freien Auto-Formats (Entscheid
+  // 06.10.2026). Fehlt die Vorlage, lädt der Transform keine und fällt auf das
+  // freie Format zurück. Ein ausdrückliches `templateId: null` (oben) bleibt Auto.
+  // Eine alte Auto-Wahl ("__auto__") zählt ebenfalls als keine Wahl.
+  const chosen = memoTemplateId || getSelectedTemplateId();
+  return chosen && chosen !== AUTO_TEMPLATE_ID ? chosen : DEFAULT_TEMPLATE_ID;
 }
 
 let instance: EnhancerService | null = null;

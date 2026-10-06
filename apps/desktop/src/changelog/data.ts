@@ -11,10 +11,13 @@ export function getLatestVersion(): string | null {
 // Bis zum 01.09.2026 stand hier ein Netzabruf auf
 // raw.githubusercontent.com/fastrepl/anarlog/.../content/<version>.md: fuer
 // jede Version ausser der eingebauten holte die App die Aenderungsliste des
-// Originals und zeigte sie dem Nutzer als die eigene. Er ist entfernt. Eigene
-// Ausgaben bringen ihre Liste eingebaut mit (packages/changelog/content, siehe
-// LIESMICH.md dort); fuer jede andere Version steht in der Oberflaeche
-// "No changelog available for this version." -- Absicht, kein Defekt.
+// Originals und zeigte sie dem Nutzer als die eigene. Er ist entfernt. Seit
+// dem 29.09.2026 kommt die eingebaute Liste aus CHANGELOG.md im Repo-Root:
+// das Vite-Plugin (apps/desktop/plugins/changelog.ts) schneidet den Abschnitt
+// der Version aus apps/desktop/package.json heraus und liefert ihn als
+// latestContent; der Ordner packages/changelog/content wird nicht mehr
+// gelesen. Fuer jede andere Version steht in der Oberflaeche "No changelog
+// available for this version." -- Absicht, kein Defekt.
 export function useChangelogContent(version: string) {
   const [content, setContent] = useState<string | null>(null);
   const [date, setDate] = useState<string | null>(null);

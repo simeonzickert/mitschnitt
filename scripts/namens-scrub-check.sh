@@ -170,6 +170,10 @@ AUSSCHLUSS=(
   ':(exclude)*.gguf'
   ':(exclude)*.bin'
   ':(exclude)vendor/mp3lame-sys/lame-3.100/**'
+  # Same reasoning, scoped to one file: the MIT notice of the vendored
+  # markdown serializer (Upstream #7993) names its author with a mail address.
+  # The licence requires keeping it verbatim; the vendored sources stay checked.
+  ':(exclude)crates/tiptap/vendor/mdast_util_to_markdown/LICENSE'
 )
 
 # ------------------------------------------------------- erlaubte Klarnamen

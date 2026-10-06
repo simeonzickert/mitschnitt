@@ -92,3 +92,43 @@ function orderBySelectionThenConfigured<T extends Groupable>(
 
   return [...selected, ...configured, ...rest];
 }
+
+export type CollapsedMore<T> = { pinned: T[]; rest: T[] };
+
+// Splits the already ordered "more" list for a collapsible group. `pinned`
+// are the selected and the configured providers: they must never be hidden
+// behind the fold. `rest` is everything the user has not touched yet and is
+// only shown after an active click (or while searching). The relative order
+// of both lists is kept, because `splitLocalTopMore` already put selected
+// and configured providers first.
+export function splitMoreCollapsed<T extends Groupable>(
+  more: readonly T[],
+  options?: { selectedId?: string | null; configuredIds?: readonly string[] },
+): CollapsedMore<T> {
+  const configuredIdSet = new Set(options?.configuredIds ?? []);
+  const pinned: T[] = [];
+  const rest: T[] = [];
+  for (const provider of more) {
+    if (
+      options &&
+      (provider.id === options.selectedId || configuredIdSet.has(provider.id))
+    ) {
+      pinned.push(provider);
+    } else {
+      rest.push(provider);
+    }
+  }
+  return { pinned, rest };
+}
+
+// Providers of the "more" group that are rendered right now. Collapsed means
+// only the pinned ones; `expanded` (active click) or `searching` (the user
+// typed a query, so hits must show) reveals the rest.
+export function visibleMoreProviders<T extends Groupable>(
+  collapsed: CollapsedMore<T>,
+  state: { expanded: boolean; searching?: boolean },
+): T[] {
+  return state.expanded || state.searching
+    ? [...collapsed.pinned, ...collapsed.rest]
+    : collapsed.pinned;
+}

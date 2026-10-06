@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
     | ((sessionId: string) => void)
     | undefined,
   resumeHook: vi.fn(),
+  releaseLease: vi.fn(),
   resumeBySession: new Map<string, ReturnType<typeof vi.fn>>(),
   subscribeCaptureRecoveryCancelled: vi.fn(),
   cancellationHandler: undefined as ((sessionId: string) => void) | undefined,
@@ -28,7 +29,7 @@ vi.mock("./useStartListening", () => ({
       resume = vi.fn(() => Promise.resolve("attached"));
       mocks.resumeBySession.set(sessionId, resume);
     }
-    return resume;
+    return Object.assign(resume, { releaseRecoveryLease: mocks.releaseLease });
   },
 }));
 
@@ -267,6 +268,8 @@ test("stops automatic recovery after the bounded retry budget", async () => {
     "[listener] capture recovery retry budget exhausted",
     { sessionId: "session-terminal" },
   );
+  // A throwing last attempt can still hold the lease; giving up must free it.
+  expect(mocks.releaseLease).toHaveBeenCalledTimes(1);
   consoleWarn.mockRestore();
   vi.useRealTimers();
 });
@@ -325,4 +328,67 @@ test("drops a pending recovery run once that session was cancelled", async () =>
 
   consoleWarn.mockRestore();
   vi.useRealTimers();
+});
+
+test("gives the recovery lease back when a restart replaces a run that waits for its retry (Fix-Runde B2 Punkt 7)", async () => {
+  vi.useFakeTimers();
+  const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+  mocks.getCaptureSnapshot.mockResolvedValue({
+    status: "error",
+    error: "capture snapshot unavailable",
+  });
+  mocks.loadCaptureLifecycleMarkers.mockResolvedValue([
+    { sessionId: "session-lease" },
+  ]);
+  const resume = vi.fn().mockResolvedValue("error");
+  mocks.resumeBySession.set("session-lease", resume);
+
+  const view = render(<LiveCaptureRecovery />);
+  await act(async () => {
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+  expect(resume).toHaveBeenCalledOnce();
+  expect(mocks.releaseLease).not.toHaveBeenCalled();
+
+  view.unmount();
+  expect(mocks.releaseLease).toHaveBeenCalledTimes(1);
+  consoleError.mockRestore();
+  vi.useRealTimers();
+});
+
+test("gives the lease back when an attempt in flight fails after the run was already replaced (Fix-Runde B3, Punkt 10)", async () => {
+  const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+  mocks.getCaptureSnapshot.mockResolvedValue({
+    status: "error",
+    error: "capture snapshot unavailable",
+  });
+  mocks.loadCaptureLifecycleMarkers.mockResolvedValue([
+    { sessionId: "session-inflight" },
+  ]);
+  let finish: (value: string) => void = () => {};
+  const resume = vi.fn(
+    () =>
+      new Promise<string>((resolve) => {
+        finish = resolve;
+      }),
+  );
+  mocks.resumeBySession.set("session-inflight", resume);
+
+  const view = render(<LiveCaptureRecovery />);
+  await act(async () => {
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+  expect(resume).toHaveBeenCalledOnce();
+
+  view.unmount();
+  expect(mocks.releaseLease).not.toHaveBeenCalled();
+  await act(async () => {
+    finish("error");
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+  expect(mocks.releaseLease).toHaveBeenCalledTimes(1);
+  consoleError.mockRestore();
 });

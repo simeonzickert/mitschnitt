@@ -280,7 +280,22 @@ async fn nach_einer_reparatur_stehen_die_deutschen_fassungen() {
 
     prepare_schema(&db).await.unwrap();
 
+    // Seit dem Schnitt vom 06.10.2026 (20260911120000) fehlen die zwei
+    // Sprint-Vorlagen, und die Vorlesung heisst „Vortrag & Schulung“.
     for (id, titel, _) in DIE_FUENF {
+        let titel = match id {
+            "default-sprint-planning" | "default-sprint-retrospective" => {
+                assert!(!template_ids(&db).await.contains(&id.to_string()));
+                continue;
+            }
+            "default-one-on-one-meeting" => {
+                // Seit Runde 2 (20260912120000) ebenfalls entfernt.
+                assert!(!template_ids(&db).await.contains(&id.to_string()));
+                continue;
+            }
+            "default-lecture-notes" => "Vortrag & Schulung",
+            _ => titel,
+        };
         let (ist_titel, _, _) = vorlage(&db, id).await;
         assert_eq!(
             ist_titel, titel,

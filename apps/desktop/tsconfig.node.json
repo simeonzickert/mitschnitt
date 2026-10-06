@@ -6,5 +6,9 @@
     "moduleResolution": "bundler",
     "allowSyntheticDefaultImports": true
   },
-  "include": ["vite.config.ts", "plugins/changelog.ts"]
+  "include": [
+    "vite.config.ts",
+    "plugins/changelog.ts",
+    "plugins/changelog.test.ts"
+  ]
 }

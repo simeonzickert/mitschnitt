@@ -133,18 +133,14 @@ async fn migrations_seed_default_templates_without_overwriting_existing_rows() {
     // Test sie vorher bearbeitet hat. Genau das ist die Zusage des
     // Aufraeum-Steps: er nimmt nur mit, was Feld fuer Feld noch der
     // Auslieferungsstand ist. 'Custom Standup' ist es nicht und bleibt.
-    assert_eq!(rows.len(), 8);
+    assert_eq!(rows.len(), 4);
     assert_eq!(
         rows.iter().map(|row| row.id.as_str()).collect::<Vec<_>>(),
         vec![
             "default-client-kickoff",
             "default-daily-standup",
             "default-lecture-notes",
-            "default-one-on-one-meeting",
-            "default-sprint-planning",
-            "default-sprint-retrospective",
             "mitschnitt-kompakt",
-            "mitschnitt-standard",
         ]
     );
 

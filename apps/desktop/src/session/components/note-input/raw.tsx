@@ -43,7 +43,6 @@ const noop = () => {};
 const defaultSuggestedTemplateIds = [
   "default-project-kickoff",
   "default-daily-standup",
-  "default-one-on-one-meeting",
 ];
 // Structural check: any block beyond a single empty paragraph (checkbox, list,
 // extra empty lines) counts as content, unlike the text-based hasStoredNoteContent
@@ -68,10 +67,6 @@ const contextualTemplateRules = [
   {
     id: "default-daily-standup",
     pattern: /\b(standup|stand-up|daily sync|scrum)\b/i,
-  },
-  {
-    id: "default-one-on-one-meeting",
-    pattern: /\b(1:1|one[- ]on[- ]one)\b/i,
   },
 ];
 
@@ -345,11 +340,9 @@ function getSuggestedTemplates(
   {
     eventTitle,
     eventDescription,
-    participantCount,
   }: {
     eventTitle?: string;
     eventDescription?: string;
-    participantCount: number;
   },
 ) {
   const favoriteIds = new Set(favoriteTemplates.map((template) => template.id));
@@ -362,9 +355,6 @@ function getSuggestedTemplates(
   const contextualIds = contextualTemplateRules
     .filter((rule) => rule.pattern.test(eventText))
     .map((rule) => rule.id);
-  if (participantCount === 2) {
-    contextualIds.push("default-one-on-one-meeting");
-  }
   const preferredTemplateIds = [
     ...new Set([...contextualIds, ...defaultSuggestedTemplateIds]),
   ];
@@ -412,7 +402,6 @@ function TemplateEmptyState({
       getSuggestedTemplates(userTemplates, favoriteTemplates, {
         eventTitle,
         eventDescription,
-        participantCount: eventParticipants.length,
       }),
     [
       eventDescription,

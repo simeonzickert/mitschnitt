@@ -456,4 +456,41 @@ describe("ToastNotifications", () => {
       expect.anything(),
     );
   });
+
+  it("adds the restart action once a ready update stops being busy", () => {
+    // Regression: die ready-Meldung erschien zuerst, waehrend downloadStarting
+    // noch true war (ohne Knopf). Danach wurde busy falsch, aber id und Text
+    // blieben gleich, also gab es keinen Remount und der Knopf fehlte fuer
+    // immer. Der Remount-Schluessel muss die primaryAction enthalten.
+    mocks.update.status = "ready";
+    mocks.update.version = "1.0.34";
+    mocks.update.downloadStarting = true;
+
+    const view = render(<ToastNotifications />);
+    act(() => vi.advanceTimersByTime(500));
+
+    expect(mocks.message).toHaveBeenCalledWith(
+      "Mitschnitt 1.0.34 is ready to install",
+      expect.objectContaining({
+        id: "desktop-update:1.0.34:ready",
+        action: undefined,
+      }),
+    );
+
+    mocks.message.mockClear();
+    mocks.update.downloadStarting = false;
+    view.rerender(<ToastNotifications />);
+
+    expect(mocks.message).toHaveBeenCalledWith(
+      "Mitschnitt 1.0.34 is ready to install",
+      expect.objectContaining({
+        id: "desktop-update:1.0.34:ready",
+        action: expect.objectContaining({ label: "Restart" }),
+      }),
+    );
+
+    const options = mocks.message.mock.calls[0][1];
+    act(() => options.action.onClick());
+    expect(mocks.update.installUpdate).toHaveBeenCalledTimes(1);
+  });
 });

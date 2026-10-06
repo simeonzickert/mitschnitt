@@ -4,6 +4,27 @@ All notable changes to Mitschnitt. The format follows [Keep a Changelog](https:/
 
 Every version heading below is `## X.Y.Z (YYYY-MM-DD)`. `scripts/changelog-extract.sh` reads this file by that exact heading and by the `### What's new` / optional `### Note` subheadings underneath it to build the GitHub release notes and the in-app update notice — see that script's header comment for the contract. Before a release ships, its section here must exist and `### What's new` must not be empty, or `scripts/mitschnitt-release.sh` refuses to build.
 
+## 0.1.16 (2026-10-06)
+
+### Note
+
+Templates are cleaned up: three ship with the app (Standard, Kunden-Kickoff, Vortrag & Schulung) and "Auto" is no longer offered. Templates you created or edited yourself stay untouched. Notes you already summarized with "Auto" keep their format.
+
+### What's new
+
+- **Correct speakers in the transcript.** Select text and pick "Change speaker from here", press Enter at the cursor to split a block, merge or delete blocks, and undo a deletion. Editing works right after you stop recording, and "Resume" stays next to the edit button.
+- **Edits are protected while the transcript is refined.** Editing is paused while post-processing replaces the transcript, and text you are typing is saved instead of lost.
+- **Templates: one Standard for almost every conversation.** "Standard" is pinned at the top and used whenever no template is chosen. The quotes section only appears when a quote adds something the summary does not already say.
+- **Summaries are no longer cut off.** Long summaries keep all sections of your template.
+- **Person profiles in your language.** The summary on a contact follows the language of your meetings instead of defaulting to English.
+- **Local transcription keeps numbers.** Parakeet no longer drops digits.
+- **Cleaner provider lists.** Rarely used providers are collapsed under "More"; the selected and configured ones stay visible.
+- **Google and Outlook calendars.** The calendar step explains how to add them through macOS Internet Accounts, with a button that opens the right settings page.
+- **Fixed:** Markdown export garbled text with umlauts before formatting characters; the editor could crash when a bullet followed a list; some cloud transcription responses with empty lists failed.
+- **Security:** updated editor and serialization libraries with published security fixes.
+
+All changes from 0.1.10 are included, see below.
+
 ## 0.1.10 (2026-09-29)
 
 ### Note

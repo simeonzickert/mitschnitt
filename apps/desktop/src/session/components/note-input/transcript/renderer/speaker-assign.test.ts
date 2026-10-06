@@ -26,17 +26,25 @@ import {
 import type { Segment } from "~/stt/live-segment";
 
 const {
+  assignSessionTranscriptSpeakerMock,
   assignTranscriptSpeakerMock,
   addSessionParticipantMock,
   createHumanMock,
   useHumansMock,
   useSessionParticipantsMock,
+  toastErrorMock,
 } = vi.hoisted(() => ({
+  toastErrorMock: vi.fn(),
+  assignSessionTranscriptSpeakerMock: vi.fn(),
   assignTranscriptSpeakerMock: vi.fn(),
   addSessionParticipantMock: vi.fn(),
   createHumanMock: vi.fn(),
   useHumansMock: vi.fn(),
   useSessionParticipantsMock: vi.fn(),
+}));
+
+vi.mock("@anlg/ui/components/ui/toast", () => ({
+  sonnerToast: { error: toastErrorMock },
 }));
 
 vi.mock("@anlg/ui/components/ui/popover", async () => {
@@ -133,12 +141,14 @@ vi.mock("~/session/queries", () => ({
 }));
 
 vi.mock("~/stt/queries", () => ({
+  assignSessionTranscriptSpeaker: assignSessionTranscriptSpeakerMock,
   assignTranscriptSpeaker: assignTranscriptSpeakerMock,
 }));
 
 beforeEach(() => {
   cleanup();
   vi.clearAllMocks();
+  assignSessionTranscriptSpeakerMock.mockResolvedValue(undefined);
   assignTranscriptSpeakerMock.mockResolvedValue(undefined);
   addSessionParticipantMock.mockResolvedValue(undefined);
   createHumanMock.mockResolvedValue("human-new");
@@ -167,6 +177,50 @@ function option(
 }
 
 describe("SpeakerAssignPopover", () => {
+  it("offers only word-scoped assignment when a segment has no speaker index", async () => {
+    render(
+      createElement(SpeakerAssignPopover, {
+        segment: {
+          id: "segment-1",
+          key: {
+            channel: "MixedCapture",
+            speaker_index: null,
+            speaker_human_id: null,
+          },
+          start_ms: 0,
+          end_ms: 100,
+          text: "hello",
+          words: [
+            {
+              id: "word-1",
+              text: "hello",
+              start_ms: 0,
+              end_ms: 100,
+              channel: "MixedCapture",
+              is_final: true,
+            },
+          ],
+        } as Segment,
+        transcriptId: "transcript-1",
+        sessionId: "session-1",
+        color: "red",
+        label: "Unknown speaker",
+      }),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Unknown speaker" }));
+    expect(screen.queryByRole("checkbox")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Alice" }));
+    fireEvent.click(screen.getByRole("button", { name: "Confirm" }));
+
+    await waitFor(() =>
+      expect(assignTranscriptSpeakerMock).toHaveBeenCalledWith(
+        expect.objectContaining({ mode: "segment", wordIds: ["word-1"] }),
+      ),
+    );
+    expect(assignSessionTranscriptSpeakerMock).not.toHaveBeenCalled();
+  });
+
   it("assigns only after confirmation and defaults to all matching segments", async () => {
     render(
       createElement(SpeakerAssignPopover, {
@@ -192,6 +246,7 @@ describe("SpeakerAssignPopover", () => {
           ],
         } as Segment,
         transcriptId: "transcript-1",
+        sessionId: "session-1",
         color: "red",
         label: "Speaker 2",
       }),
@@ -234,7 +289,8 @@ describe("SpeakerAssignPopover", () => {
     fireEvent.click(screen.getByRole("button", { name: "Confirm" }));
 
     await waitFor(() => {
-      expect(assignTranscriptSpeakerMock).toHaveBeenCalledWith({
+      expect(assignSessionTranscriptSpeakerMock).toHaveBeenCalledWith({
+        sessionId: "session-1",
         transcriptId: "transcript-1",
         segmentKey: {
           channel: "RemoteParty",
@@ -243,10 +299,50 @@ describe("SpeakerAssignPopover", () => {
         },
         humanId: "human-1",
         anchorWordId: "word-1",
-        mode: "all",
         wordIds: ["word-1"],
       });
     });
+  });
+
+  it("shows a toast when assigning to all matching segments fails (Fix-Runde B6)", async () => {
+    assignSessionTranscriptSpeakerMock.mockRejectedValueOnce(new Error("db"));
+    render(
+      createElement(SpeakerAssignPopover, {
+        segment: {
+          id: "segment-1",
+          key: {
+            channel: "RemoteParty",
+            speaker_index: 2,
+            speaker_human_id: null,
+          },
+          start_ms: 0,
+          end_ms: 100,
+          text: "hello",
+          words: [
+            {
+              id: "word-1",
+              text: "hello",
+              start_ms: 0,
+              end_ms: 100,
+              channel: "RemoteParty",
+              is_final: true,
+            },
+          ],
+        } as Segment,
+        transcriptId: "transcript-1",
+        sessionId: "session-1",
+        color: "red",
+        label: "Speaker 2",
+      }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Speaker 2" }));
+    fireEvent.click(screen.getByRole("button", { name: "Alice" }));
+    fireEvent.click(screen.getByRole("button", { name: "Confirm" }));
+    await waitFor(() =>
+      expect(toastErrorMock).toHaveBeenCalledWith(
+        "Could not assign the speaker",
+      ),
+    );
   });
 
   it("uses segment scope when the matching-segments checkbox is off", async () => {

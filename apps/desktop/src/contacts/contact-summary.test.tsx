@@ -127,6 +127,10 @@ describe("contact summary", () => {
     expect(mocks.generateText.mock.calls[0]?.[0].system).toContain(
       "Prefer newer evidence",
     );
+    // The brief follows the meetings' language instead of defaulting to English.
+    expect(mocks.generateText.mock.calls[0]?.[0].system).toContain(
+      "Never default to English",
+    );
     expect(mocks.updateHumanContactSummary).toHaveBeenCalledWith(
       "human-1",
       expect.objectContaining({

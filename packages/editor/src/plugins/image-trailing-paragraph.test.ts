@@ -1,4 +1,5 @@
 import { EditorState } from "prosemirror-state";
+import { findWrapping } from "prosemirror-transform";
 import { describe, expect, it } from "vitest";
 
 import { schema } from "../note/schema";
@@ -77,6 +78,27 @@ describe("imageTrailingParagraphPlugin", () => {
     state = state.applyTransaction(state.tr.insertText("x", 1)).state;
 
     expect(state.doc.textContent).toBe("x");
+  });
+
+  it("does not crash when a bullet typed after a list at the end of the doc joins that list", () => {
+    let state = createState([
+      schema.node("bulletList", null, [
+        schema.node("listItem", null, [
+          schema.node("paragraph", null, [schema.text("a")]),
+        ]),
+      ]),
+      schema.node("paragraph", null, [schema.text("- ")]),
+    ]);
+
+    const tr = state.tr.delete(8, 10);
+    const range = tr.doc.resolve(8).blockRange()!;
+    tr.wrap(range, findWrapping(range, schema.nodes.bulletList)!);
+    tr.join(7);
+
+    state = state.applyTransaction(tr).state;
+
+    expect(state.doc.childCount).toBe(1);
+    expect(state.doc.child(0).childCount).toBe(2);
   });
 });
 

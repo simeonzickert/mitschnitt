@@ -1,3 +1,4 @@
+import { t as translate } from "@lingui/core/macro";
 import { Trans, useLingui } from "@lingui/react/macro";
 import { MagnifyingGlass, Plus } from "@phosphor-icons/react";
 import { useCallback, useMemo, useRef, useState } from "react";
@@ -10,6 +11,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@anlg/ui/components/ui/popover";
+import { sonnerToast } from "@anlg/ui/components/ui/toast";
 import { cn } from "@anlg/utils";
 
 import { preserveScrollPosition } from "./viewport-hooks";
@@ -23,8 +25,12 @@ import {
   useSession,
   useSessionParticipants,
 } from "~/session/queries";
+import { guardUserTranscriptMutation } from "~/session/transcript-editable";
 import type { Segment } from "~/stt/live-segment";
-import { assignTranscriptSpeaker } from "~/stt/queries";
+import {
+  assignSessionTranscriptSpeaker,
+  assignTranscriptSpeaker,
+} from "~/stt/queries";
 
 export type AssignmentMode = "all" | "segment";
 
@@ -61,25 +67,38 @@ export function SpeakerAssignPopover({
         triggerRef.current?.closest<HTMLElement>(
           "[data-transcript-container]",
         ) ?? null;
+      const assign = () =>
+        assignmentMode === "all" && sessionId
+          ? assignSessionTranscriptSpeaker({
+              sessionId,
+              transcriptId,
+              segmentKey: segment.key,
+              humanId,
+              anchorWordId,
+              wordIds: getAssignmentWordIds(segment),
+            })
+          : assignTranscriptSpeaker({
+              transcriptId,
+              segmentKey: segment.key,
+              humanId,
+              anchorWordId,
+              mode: assignmentMode,
+              wordIds: getAssignmentWordIds(segment),
+            });
       void preserveScrollPosition(scrollContainer, () =>
-        assignTranscriptSpeaker({
-          transcriptId,
-          segmentKey: segment.key,
-          humanId,
-          anchorWordId,
-          mode: assignmentMode,
-          wordIds: getAssignmentWordIds(segment),
-        }),
+        guardUserTranscriptMutation(sessionId, assign),
       )
-        .then(() => {
+        .then((result) => {
+          if (!result.allowed) return;
           onAssigned?.(humanId);
           handleOpenChange(false);
         })
         .catch((error) => {
           console.error("[transcript] failed to assign speaker", error);
+          sonnerToast.error(translate`Could not assign the speaker`);
         });
     },
-    [handleOpenChange, onAssigned, transcriptId, segment],
+    [handleOpenChange, onAssigned, sessionId, transcriptId, segment],
   );
 
   return (
@@ -111,6 +130,7 @@ export function SpeakerAssignPopover({
         <SpeakerParticipantPicker
           sessionId={sessionId}
           onSelect={handleAssign}
+          showAssignmentScope={Number.isInteger(segment.key.speaker_index)}
         />
       </PopoverContent>
     </Popover>
@@ -461,6 +481,7 @@ export function SpeakerParticipantPicker({
       })
       .catch((error) => {
         console.error("[transcript] failed to prepare speaker", error);
+        sonnerToast.error(translate`Could not prepare the speaker`);
       })
       .finally(() => setAssigning(false));
   }, [
@@ -473,7 +494,7 @@ export function SpeakerParticipantPicker({
   ]);
 
   return (
-    <div className="flex max-h-[min(var(--radix-popover-content-available-height,calc(100vh-1rem)),28rem)] flex-col gap-1 overflow-hidden">
+    <div className="flex max-h-[min(var(--radix-popover-content-available-height,calc(100vh-1rem)),28rem)] min-h-0 flex-col gap-1 overflow-hidden">
       <AppFloatingPanel className="flex min-h-0 flex-1 flex-col overflow-hidden">
         <div className="border-border border-b py-1">
           <div className="flex h-8 items-center gap-2 px-3">
@@ -555,7 +576,7 @@ export function SpeakerParticipantPicker({
           </div>
         </div>
       </AppFloatingPanel>
-      <div className="flex items-center justify-end gap-3 py-1 pl-2">
+      <div className="flex shrink-0 items-center justify-end gap-3 py-1 pl-2">
         {showAssignmentScope && (
           <label className="flex min-w-0 flex-1 cursor-pointer items-center gap-2">
             <Checkbox

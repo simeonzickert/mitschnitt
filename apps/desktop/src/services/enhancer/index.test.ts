@@ -216,7 +216,7 @@ describe("EnhancerService", () => {
     expect(result).toEqual({ type: "started", noteId: "note-1" });
     expect(mocks.ensureSummaryDocument).toHaveBeenCalledWith(
       "session-1",
-      undefined,
+      "mitschnitt-kompakt",
     );
     expect(mocks.ensureSummaryDocument).toHaveBeenCalledBefore(ai.generate);
     expect(ai.generate).toHaveBeenCalledWith(
@@ -227,7 +227,7 @@ describe("EnhancerService", () => {
         args: {
           sessionId: "session-1",
           enhancedNoteId: "note-1",
-          templateId: undefined,
+          templateId: "mitschnitt-kompakt",
         },
         onComplete: expect.any(Function),
       }),
@@ -281,7 +281,9 @@ describe("EnhancerService", () => {
   });
 
   it("returns already_active while the note task is generating", async () => {
-    snapshot = createSnapshot({ notes: [createNote()] });
+    snapshot = createSnapshot({
+      notes: [createNote({ templateId: "mitschnitt-kompakt" })],
+    });
     const ai = createMockAITaskStore(() => ({ status: "generating" }));
     const service = new EnhancerService(createDeps({ aiTaskStore: ai.store }));
 
@@ -296,6 +298,7 @@ describe("EnhancerService", () => {
     snapshot = createSnapshot({
       notes: [
         createNote({
+          templateId: "mitschnitt-kompakt",
           content:
             '{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"Saved"}]}]}',
         }),
@@ -545,7 +548,7 @@ describe("EnhancerService", () => {
     ).resolves.toEqual({ type: "queued" });
     expect(mocks.ensureSummaryDocument).toHaveBeenCalledWith(
       "session-1",
-      undefined,
+      "mitschnitt-kompakt",
     );
     expect(mocks.ensurePendingAutoEnhanceDocument).not.toHaveBeenCalled();
     expect(queueSpy).toHaveBeenCalledWith("session-1");
@@ -562,7 +565,7 @@ describe("EnhancerService", () => {
 
     expect(mocks.ensurePendingAutoEnhanceDocument).toHaveBeenCalledWith(
       "session-1",
-      undefined,
+      "mitschnitt-kompakt",
     );
     expect(mocks.ensurePendingAutoEnhanceDocument).toHaveBeenCalledBefore(
       queueSpy,
@@ -986,7 +989,9 @@ describe("EnhancerService", () => {
   });
 
   it("still enhances sessions without any transcript", async () => {
-    snapshot = createSnapshot({ notes: [createNote()] });
+    snapshot = createSnapshot({
+      notes: [createNote({ templateId: "mitschnitt-kompakt" })],
+    });
     const ai = createMockAITaskStore();
     const service = new EnhancerService(createDeps({ aiTaskStore: ai.store }));
 
@@ -1044,5 +1049,45 @@ describe("EnhancerService", () => {
     await vi.advanceTimersByTimeAsync(20_000);
 
     expect(unsubscribe).toHaveBeenCalledOnce();
+  });
+
+  it("falls back to the Standard template when no template is selected", async () => {
+    snapshot = createSnapshot();
+    const ai = createMockAITaskStore();
+    const service = new EnhancerService(
+      createDeps({
+        aiTaskStore: ai.store,
+        getSelectedTemplateId: () => undefined,
+      }),
+    );
+
+    await service.enhance("session-1");
+
+    expect(ai.generate).toHaveBeenCalledWith(
+      "note-1-enhance",
+      expect.objectContaining({
+        args: expect.objectContaining({ templateId: "mitschnitt-kompakt" }),
+      }),
+    );
+  });
+
+  it("treats a stored __auto__ selection as no selection", async () => {
+    snapshot = createSnapshot();
+    const ai = createMockAITaskStore();
+    const service = new EnhancerService(
+      createDeps({
+        aiTaskStore: ai.store,
+        getSelectedTemplateId: () => "__auto__",
+      }),
+    );
+
+    await service.enhance("session-1");
+
+    expect(ai.generate).toHaveBeenCalledWith(
+      "note-1-enhance",
+      expect.objectContaining({
+        args: expect.objectContaining({ templateId: "mitschnitt-kompakt" }),
+      }),
+    );
   });
 });

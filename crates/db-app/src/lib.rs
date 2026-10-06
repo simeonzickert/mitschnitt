@@ -435,6 +435,26 @@ pub const APP_MIGRATION_STEPS: &[anlg_db_migrate::MigrationStep] = &[
         scope: anlg_db_migrate::MigrationScope::Plain,
         sql: include_str!("../migrations/20260910130000_import_run_session_counters.sql"),
     },
+    anlg_db_migrate::MigrationStep {
+        id: "20260911120000_vorlagen_standard",
+        scope: anlg_db_migrate::MigrationScope::Plain,
+        sql: include_str!("../migrations/20260911120000_vorlagen_standard.sql"),
+    },
+    anlg_db_migrate::MigrationStep {
+        id: "20260911120100_wahl_nach_vorlagen_standard",
+        scope: anlg_db_migrate::MigrationScope::Plain,
+        sql: include_str!("../migrations/20260911120100_wahl_nach_vorlagen_standard.sql"),
+    },
+    anlg_db_migrate::MigrationStep {
+        id: "20260912120000_vorlagen_drei",
+        scope: anlg_db_migrate::MigrationScope::Plain,
+        sql: include_str!("../migrations/20260912120000_vorlagen_drei.sql"),
+    },
+    anlg_db_migrate::MigrationStep {
+        id: "20260912120100_wahl_nach_vorlagen_drei",
+        scope: anlg_db_migrate::MigrationScope::Plain,
+        sql: include_str!("../migrations/20260912120100_wahl_nach_vorlagen_drei.sql"),
+    },
 ];
 
 pub fn schema() -> anlg_db_migrate::DbSchema {
@@ -1191,7 +1211,7 @@ fn migration_sql(id: &'static str) -> Result<&'static str, AppSchemaError> {
 
 /// Stellt den Vorlagenbestand nach einer Tabellen-Reparatur wieder her: erst
 /// die Seeds (17 Upstream plus die forkeigenen), dann der Aufraeum-Step, der
-/// dreizehn davon wieder entfernt -- am Ende stehen dieselben SIEBEN wie nach
+/// weitere wieder entfernt -- am Ende stehen dieselben DREI wie nach
 /// einer normalen Migration. Ohne den letzten Schritt braechte jede Reparatur
 /// die entfernten Vorlagen zurueck, und der Nutzer haette eine volle Liste,
 /// die er einmal aufgeraeumt hat.
@@ -1223,6 +1243,15 @@ async fn replay_template_seeds(pool: &sqlx::SqlitePool) -> Result<(), AppSchemaE
         // Gegenpruefung" in der Liste -- und damit doppelt, weil der Rahmen
         // seinen Nachfolger ohnehin anhaengt.
         "20260907120000_bitte_gegenpruefen_in_den_rahmen",
+        // Zuletzt der Schnitt auf vier Vorlagen (06.10.2026): er benennt
+        // 'mitschnitt-kompakt' um, pinnt sie und entfernt die drei Vorlagen,
+        // die die Seeds oben gerade wieder eingesetzt haben. Der Wahl-Step
+        // dazu (20260911120100) gehoert wie die anderen nicht hierher.
+        "20260911120000_vorlagen_standard",
+        // Und der Schnitt auf drei (06.10.2026, abends): entfernt das 1:1 und
+        // stellt Kickoff und Vortrag um. Sein Wahl-Step gehoert wie der
+        // vorige nicht hierher.
+        "20260912120000_vorlagen_drei",
     ] {
         sqlx::raw_sql(migration_sql(id)?).execute(pool).await?;
     }

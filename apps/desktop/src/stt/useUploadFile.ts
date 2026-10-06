@@ -77,7 +77,7 @@ export function useUploadFile(sessionId: string) {
     if (!service) return;
 
     try {
-      const result = await service.enhance(sessionId);
+      const result = await service.enhance(sessionId, { isAuto: true });
       if (
         (result.type === "started" || result.type === "already_active") &&
         sessionTab

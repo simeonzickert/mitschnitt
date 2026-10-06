@@ -269,31 +269,8 @@ export function TemplatePickerPopover({
       }>;
     }>
   >(() => {
-    const autoSection = {
-      key: "auto",
-      title: t`Auto`,
-      showHeader: false,
-      items: [
-        {
-          key: "auto",
-          title: t`Auto`,
-          icon: {
-            type: "icon",
-            value: "sparkles",
-            color: "#9ca3af",
-          } satisfies TemplateIcon,
-          onClick: () =>
-            handleUseTemplate({
-              templateId: null,
-              title: "Auto",
-            }),
-        },
-      ],
-    };
-
     if (!hasSearch) {
       return [
-        autoSection,
         {
           key: "templates",
           title: t`Templates`,
@@ -305,7 +282,6 @@ export function TemplatePickerPopover({
     }
 
     return [
-      autoSection,
       {
         key: "create",
         title: t`Create new template`,

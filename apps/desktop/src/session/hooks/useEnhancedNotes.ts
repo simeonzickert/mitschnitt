@@ -12,6 +12,7 @@ import { useConfigValue } from "~/shared/config";
 import { createTaskId } from "~/store/zustand/ai-task/task-configs";
 import type { SessionMode } from "~/store/zustand/listener/general";
 import { useListener } from "~/stt/contexts";
+import { DEFAULT_TEMPLATE_ID } from "~/templates/default-template-id";
 
 export function useEnhancedNotes(sessionId: string) {
   const notes = useEnhancedNoteRecords(sessionId);
@@ -64,7 +65,8 @@ export function useEnsureDefaultSummaryFromState({
   sessionMode: SessionMode;
 }) {
   const selectedTemplateId = useConfigValue("selected_template_id");
-  const templateId = memoTemplateId || selectedTemplateId || undefined;
+  const templateId =
+    memoTemplateId || selectedTemplateId || DEFAULT_TEMPLATE_ID;
 
   useEffect(() => {
     if (!enabled) {

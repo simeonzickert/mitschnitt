@@ -6,7 +6,12 @@ import {
 } from "~/settings/ai/llm/select";
 import { PROVIDERS } from "~/settings/ai/llm/shared";
 
-import { groupProviders, splitLocalTopMore } from "./provider-groups";
+import {
+  groupProviders,
+  splitLocalTopMore,
+  splitMoreCollapsed,
+  visibleMoreProviders,
+} from "./provider-groups";
 
 describe("groupProviders", () => {
   test("orders primary by primaryIds, not the input order", () => {
@@ -252,9 +257,9 @@ describe("splitLocalTopMore against the real LLM provider list", () => {
     const topIds = result.top.map((provider) => provider.id);
 
     expect(topIds.indexOf("anthropic")).toBe(topIds.indexOf("openai") + 1);
-    expect(
-      result.more.some((provider) => provider.id === "anthropic"),
-    ).toBe(false);
+    expect(result.more.some((provider) => provider.id === "anthropic")).toBe(
+      false,
+    );
   });
 
   test("a selected provider in more comes first, ahead of configured and the alphabetical rest", () => {
@@ -280,9 +285,9 @@ describe("splitLocalTopMore against the real LLM provider list", () => {
       LLM_TOP_PROVIDER_IDS,
     );
 
-    expect(
-      result.local.length + result.top.length + result.more.length,
-    ).toBe(PROVIDERS.length);
+    expect(result.local.length + result.top.length + result.more.length).toBe(
+      PROVIDERS.length,
+    );
 
     const groupedIds = new Set([
       ...result.local.map((provider) => provider.id),
@@ -291,5 +296,62 @@ describe("splitLocalTopMore against the real LLM provider list", () => {
     ]);
     const allIds = new Set(PROVIDERS.map((provider) => provider.id));
     expect(groupedIds).toEqual(allIds);
+  });
+});
+
+describe("collapsed More group", () => {
+  const more = [
+    { id: "a", displayName: "A" },
+    { id: "b", displayName: "B" },
+    { id: "c", displayName: "C" },
+    { id: "d", displayName: "D" },
+  ];
+
+  test("is collapsed by default: nothing untouched is visible", () => {
+    const collapsed = splitMoreCollapsed(more, {
+      selectedId: null,
+      configuredIds: [],
+    });
+
+    expect(collapsed.rest).toHaveLength(4);
+    expect(visibleMoreProviders(collapsed, { expanded: false })).toEqual([]);
+  });
+
+  test("selected and configured providers stay visible when collapsed", () => {
+    const collapsed = splitMoreCollapsed(more, {
+      selectedId: "c",
+      configuredIds: ["a"],
+    });
+
+    expect(
+      visibleMoreProviders(collapsed, { expanded: false }).map((p) => p.id),
+    ).toEqual(["a", "c"]);
+    expect(collapsed.rest.map((p) => p.id)).toEqual(["b", "d"]);
+  });
+
+  test("an active click expands to all providers, order kept", () => {
+    const collapsed = splitMoreCollapsed(more, {
+      selectedId: "c",
+      configuredIds: [],
+    });
+
+    expect(
+      visibleMoreProviders(collapsed, { expanded: true }).map((p) => p.id),
+    ).toEqual(["c", "a", "b", "d"]);
+  });
+
+  test("searching shows hits from the collapsed group without a click", () => {
+    const collapsed = splitMoreCollapsed(more, {
+      selectedId: null,
+      configuredIds: [],
+    });
+
+    expect(
+      visibleMoreProviders(collapsed, { expanded: false, searching: true }),
+    ).toHaveLength(4);
+  });
+
+  test("without options nothing is pinned", () => {
+    expect(splitMoreCollapsed(more).pinned).toEqual([]);
   });
 });

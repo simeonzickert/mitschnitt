@@ -56,6 +56,7 @@ type NoteInputProps = {
   hideHeader?: boolean;
   sessionMode?: SessionMode;
   transcriptEditMode?: boolean;
+  onTranscriptEditModeChange?: (editMode: boolean) => void;
 };
 
 export function shouldShowTranscriptTabSpinner(sessionMode: SessionMode) {
@@ -153,6 +154,7 @@ const NoteInputContent = forwardRef<
       hideHeader = false,
       sessionMode,
       transcriptEditMode = false,
+      onTranscriptEditModeChange,
     },
     ref,
   ) => {
@@ -403,6 +405,7 @@ const NoteInputContent = forwardRef<
                 sessionId={sessionId}
                 scrollRef={scrollRef}
                 editMode={transcriptEditMode}
+                onEditModeChange={onTranscriptEditModeChange}
               />
             )}
           </div>
