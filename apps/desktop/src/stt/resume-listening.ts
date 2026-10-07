@@ -33,7 +33,7 @@ export function useResumeListeningLifecycle(sessionId: string) {
   } | null>(null);
   const ownsRecoveryFinalizationRef = useRef(false);
 
-  return useCallback(
+  const resume = useCallback(
     async (options?: { abandonOnFailure?: boolean }) => {
       // The user is deliberately resuming this session. Recovery would race
       // that resume: it marks post-stop processing and repairs the transcript
@@ -303,4 +303,19 @@ export function useResumeListeningLifecycle(sessionId: string) {
       sessionId,
     ],
   );
+
+  // Gives back the lease this instance took (see ownsRecoveryFinalizationRef).
+  // For a caller that walks away BETWEEN two attempts, with nothing in flight:
+  // a failed attempt keeps the lease for its retry, and an instance that never
+  // runs again would otherwise leave the session blocked, because a replacement
+  // instance does not own the lease and can neither take nor release it.
+  const releaseRecoveryLease = useCallback(() => {
+    if (ownsRecoveryFinalizationRef.current) {
+      finishCaptureRecoveryFinalization(sessionId);
+    }
+    ownsRecoveryFinalizationRef.current = false;
+    recoveryAttemptRef.current = null;
+  }, [finishCaptureRecoveryFinalization, sessionId]);
+
+  return Object.assign(resume, { releaseRecoveryLease });
 }

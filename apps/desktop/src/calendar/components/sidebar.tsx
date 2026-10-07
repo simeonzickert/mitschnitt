@@ -22,6 +22,7 @@ import {
   AppleCalendarPermissionDialog,
   TroubleShootingLink,
 } from "./apple/permission";
+import { SystemAccountsHint } from "./apple/system-accounts-hint";
 import {
   type CalendarProvider,
   isProviderAvailable,
@@ -264,6 +265,7 @@ function ProviderAccordionItem({
                   />
                 }
               />
+              <SystemAccountsHint className="px-1" />
             </div>
           )}
         </AccordionContent>

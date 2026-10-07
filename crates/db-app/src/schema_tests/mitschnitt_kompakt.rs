@@ -154,10 +154,12 @@ async fn frische_datenbank_traegt_die_vorlage_mit_genau_diesen_sieben_abschnitte
     let db = test_db().await;
     let row = get_template(db.pool(), VORLAGE_ID).await.unwrap().unwrap();
 
-    assert_eq!(row.title, "Mitschnitt Kompakt");
+    // Seit 20260911120000 heisst sie „Standard“ und steht gepinnt oben
+    // (Entscheid 06.10.2026); Gegenstand dort: schema_tests/vorlagen_standard.rs.
+    assert_eq!(row.title, "Standard");
     assert_eq!(row.category.as_deref(), Some("Mitschnitt"));
-    assert!(!row.pinned);
-    assert_eq!(row.pin_order, None);
+    assert!(row.pinned);
+    assert_eq!(row.pin_order, Some(0));
     assert_eq!(
         row.icon_json, r##"{"type":"icon","value":"notebook-tabs","color":"#9ca3af"}"##,
         "kein eigenes Icon: der Spalten-Default gilt"
@@ -498,6 +500,6 @@ async fn zweiter_lauf_desselben_sql_aendert_nichts() {
     }
     let nachher = abbild(&db).await;
 
-    assert_eq!(vorher.0.len(), 7, "keine Duplikate in templates");
+    assert_eq!(vorher.0.len(), 3, "keine Duplikate in templates");
     assert_eq!(vorher, nachher);
 }

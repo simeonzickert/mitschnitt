@@ -34,6 +34,7 @@ schreiben."). Das gilt fuer diese Vorlage, die daraus gebaute Release-Notiz
 und die "notes" in latest.json -- nicht fuer die App-Oberflaeche selbst, die
 bleibt zweisprachig.
 -->
+
 ## Download Mitschnitt {{VERSION}}
 
 {{DOWNLOADS}}

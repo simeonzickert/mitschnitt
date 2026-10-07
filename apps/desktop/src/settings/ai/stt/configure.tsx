@@ -19,6 +19,10 @@ import {
   ProviderSearch,
   StyledStreamdown,
 } from "~/settings/ai/shared";
+import {
+  MoreGroupHeader,
+  useCollapsedMore,
+} from "~/settings/ai/shared/more-group";
 import { splitLocalTopMore } from "~/settings/ai/shared/provider-groups";
 import { getConfiguredProviderIds } from "~/settings/ai/shared/selection";
 import { useConfigValue } from "~/shared/config";
@@ -28,7 +32,8 @@ import { useConfigValue } from "~/shared/config";
 // Dropdown dort als auch diese Karten-Liste hier -- nicht zweimal sortieren
 // (28.09.2026, Befund: die Karten waren "bunt gemischt").
 export function ConfigureProviders() {
-  const { accordionValue, setAccordionValue } = useSttSettings();
+  const { accordionValue, setAccordionValue, pendingProvider } =
+    useSttSettings();
   const currentProvider = useConfigValue("current_stt_provider");
   const [search, setSearch] = useState("");
   const { t } = useLingui();
@@ -47,6 +52,19 @@ export function ConfigureProviders() {
     STT_LOCAL_PROVIDER_IDS,
     STT_TOP_PROVIDER_IDS,
     { selectedId: currentProvider, configuredIds: configuredProviderIds },
+  );
+  // "More" is collapsed by default; selected/configured providers stay
+  // visible and an active search shows every hit.
+  const moreGroup = useCollapsedMore(
+    more,
+    {
+      selectedId: currentProvider,
+      // A provider picked in the dropdown but not saved yet stays visible.
+      configuredIds: pendingProvider
+        ? [...configuredProviderIds, pendingProvider]
+        : configuredProviderIds,
+    },
+    search.trim().length > 0,
   );
 
   const renderCard = (provider: (typeof providers)[number]) => (
@@ -91,8 +109,13 @@ export function ConfigureProviders() {
         {more.length > 0 ? (
           <>
             {top.length > 0 || local.length > 0 ? <Separator /> : null}
-            <ProviderGroupLabel>{t`More`}</ProviderGroupLabel>
-            {more.map(renderCard)}
+            <MoreGroupHeader
+              hiddenCount={moreGroup.hiddenCount}
+              expanded={moreGroup.expanded}
+              canToggle={moreGroup.canToggle}
+              onToggle={moreGroup.toggle}
+            />
+            {moreGroup.visible.map(renderCard)}
           </>
         ) : null}
       </Accordion>

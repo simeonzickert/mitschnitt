@@ -18,7 +18,7 @@ let package = Package(
     .package(
       url: "https://github.com/Brendonovich/swift-rs",
       revision: "01980f981bc642a6da382cc0788f18fdd4cde6df"),
-    .package(url: "https://github.com/soniqo/speech-swift", exact: "0.0.22"),
+    .package(url: "https://github.com/soniqo/speech-swift", exact: "0.0.27"),
   ],
   targets: [
     .target(

@@ -1158,3 +1158,51 @@ fn test_mention_schema_validation() {
         errors
     );
 }
+
+#[test]
+fn unicode_minus_with_markdown_punctuation_does_not_panic_or_corrupt_text() {
+    let text = "−*a−*";
+    let json = serde_json::json!({
+        "type": "doc",
+        "content": [{
+            "type": "paragraph",
+            "content": [{ "type": "text", "text": text }]
+        }]
+    });
+
+    assert_eq!(tiptap_json_to_md(&json).unwrap().trim_end(), text);
+}
+
+#[test]
+fn german_umlauts_before_markdown_punctuation_serialize_like_ascii() {
+    // Regex match positions are byte offsets; umlauts (2 bytes) shifted them
+    // and corrupted the text ("Größe *fett*" became "Größe &#x65;fett*").
+    // Reference: the same text with ASCII letters of equal char positions.
+    let to_md = |text: &str| {
+        let json = serde_json::json!({
+            "type": "doc",
+            "content": [{
+                "type": "paragraph",
+                "content": [{ "type": "text", "text": text }]
+            }]
+        });
+        tiptap_json_to_md(&json).unwrap().trim_end().to_string()
+    };
+
+    for (german, ascii) in [
+        ("Größe *fett*", "Grose *fett*"),
+        ("Übergabe_x", "Ubergabe_x"),
+        ("Äpfel *und* Öl_", "Apfel *und* Ol_"),
+        ("Maß: [Link] #1 äöü*", "Mas: [Link] #1 aou*"),
+    ] {
+        let expected = to_md(ascii);
+        let got = to_md(german);
+        assert!(!got.contains("&#x"), "corrupted: {got:?}");
+        assert_eq!(
+            got.chars().count(),
+            expected.chars().count(),
+            "{got:?} vs {expected:?}"
+        );
+        assert_eq!(got.replace('\\', ""), german, "text changed: {got:?}");
+    }
+}

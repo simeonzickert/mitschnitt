@@ -100,7 +100,7 @@ pub struct LegacyCalendar {
     pub connection_id: String,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct LegacyEvent {
     pub id: String,
     pub tracking_id_event: String,
@@ -158,7 +158,7 @@ pub struct LegacyHuman {
     pub created_at: String,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct LegacySession {
     pub id: String,
     pub owner_user_id: String,

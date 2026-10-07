@@ -427,7 +427,7 @@ describe("useUploadFile", () => {
       resolveWrite?.();
     });
     await waitFor(() => {
-      expect(enhanceMock).toHaveBeenCalledWith("session-1");
+      expect(enhanceMock).toHaveBeenCalledWith("session-1", { isAuto: true });
     });
     expect(createTranscriptMock).toHaveBeenCalledWith(
       expect.objectContaining({

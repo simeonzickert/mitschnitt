@@ -24,6 +24,7 @@ import {
   type RemoteMeeting,
 } from "~/session/hooks/useRemoteMeeting";
 import { useSessionEvent } from "~/session/hooks/useSessionEvent";
+import { useTranscriptEditable } from "~/session/transcript-editable";
 import { useWindowControlsGutter } from "~/shared/hooks/useWindowControlsGutter";
 import type { SessionMode } from "~/store/zustand/listener/general";
 import type { EditorView, Tab } from "~/store/zustand/tabs/schema";
@@ -143,6 +144,7 @@ function HeaderMeetingControl({
   const postStopProcessing = useListener(
     (state) => state.live.postStopProcessingBySession[sessionId] ?? false,
   );
+  const transcriptEditable = useTranscriptEditable(sessionId);
   const now = useNow();
   const endedAt = sessionEvent?.ended_at
     ? safeParseDate(sessionEvent.ended_at)
@@ -150,19 +152,9 @@ function HeaderMeetingControl({
   const ended = !!endedAt && endedAt.getTime() <= now.getTime();
   const canEditTranscript =
     currentView.type === "transcript" &&
-    sessionMode === "inactive" &&
+    transcriptEditable &&
     hasTranscript &&
-    (!sessionEvent || ended) &&
     onTranscriptEditModeChange;
-
-  if (canEditTranscript) {
-    return (
-      <TranscriptEditButton
-        editMode={transcriptEditMode}
-        onEditModeChange={onTranscriptEditModeChange}
-      />
-    );
-  }
 
   const canResume = audioExists || hasTranscript;
   const contentUnknown = !audioExistsResolved || postStopProcessing;
@@ -179,38 +171,45 @@ function HeaderMeetingControl({
   // -- it might turn out to have content once that settles (Fix-Runde B1).
   // Only a genuinely idle session with confirmed no content still depends on
   // the calendar event below.
-  if (sessionMode !== "inactive" || canResume || contentUnknown) {
+  const showPill =
+    sessionMode !== "inactive" ||
+    canResume ||
+    contentUnknown ||
+    !sessionEvent ||
+    !ended;
+
+  // Edit sits NEXT TO the pill, never instead of it: a meeting stopped by
+  // accident must stay resumable from the header (ZICK-319). While the edit
+  // mode is on, the pill is hidden: resuming turns the session active, which
+  // locks the transcript editor under the user's hands.
+  if (canEditTranscript) {
     return (
-      <HeaderMeetingActionPill
-        sessionId={sessionId}
-        event={sessionEvent}
-        sessionMode={sessionMode}
-        hasTranscript={hasTranscript}
-        audioExists={audioExists}
-      />
+      <>
+        {showPill && !transcriptEditMode && (
+          <HeaderMeetingActionPill
+            sessionId={sessionId}
+            event={sessionEvent ?? null}
+            sessionMode={sessionMode}
+            hasTranscript={hasTranscript}
+            audioExists={audioExists}
+          />
+        )}
+        <TranscriptEditButton
+          editMode={transcriptEditMode}
+          onEditModeChange={onTranscriptEditModeChange}
+        />
+      </>
     );
   }
 
-  if (!sessionEvent) {
-    return (
-      <HeaderMeetingActionPill
-        sessionId={sessionId}
-        event={null}
-        sessionMode={sessionMode}
-        hasTranscript={hasTranscript}
-        audioExists={audioExists}
-      />
-    );
-  }
-
-  if (ended) {
+  if (!showPill) {
     return null;
   }
 
   return (
     <HeaderMeetingActionPill
       sessionId={sessionId}
-      event={sessionEvent}
+      event={sessionEvent ?? null}
       sessionMode={sessionMode}
       hasTranscript={hasTranscript}
       audioExists={audioExists}

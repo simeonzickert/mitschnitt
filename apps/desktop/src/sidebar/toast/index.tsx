@@ -253,10 +253,14 @@ export function ToastNotifications() {
     typeof displayToast.description === "string"
       ? displayToast.description
       : displayToast.id;
+  // Sonner-Optionen (Text, action, closeButton) werden nur beim Mount an
+  // Sonner uebergeben. Aendert sich nur die primaryAction (z.B. Update wird
+  // fertig, waehrend die Meldung schon sichtbar ist), muss der Key wechseln,
+  // sonst bleibt der "Restart"-Knopf fuer immer aus.
   const previewKey =
     devtoolsPreview && devtoolsToast
       ? `${devtoolsToast.id}:${devtoolsPreview.key}`
-      : `${displayToast.id}:${descriptionKey}`;
+      : `${displayToast.id}:${descriptionKey}:${displayToast.primaryAction?.label ?? ""}`;
 
   return (
     <SonnerNotification

@@ -1,5 +1,6 @@
 import { useCallback, useMemo } from "react";
 
+import { DEFAULT_TEMPLATE_ID } from "./default-template-id";
 import { parseWebTemplates, type WebTemplate } from "./codec";
 import {
   useCreateTemplate,
@@ -14,7 +15,7 @@ import { useOwnerUserId } from "~/shared/owner-user";
 import { useWebResources } from "~/shared/ui/resource-list";
 import { type Tab, useTabs } from "~/store/zustand/tabs";
 
-export const AUTO_TEMPLATE_ID = "__auto__";
+export { AUTO_TEMPLATE_ID, DEFAULT_TEMPLATE_ID } from "./default-template-id";
 
 export function resolveTemplateTabSelection({
   isWebMode,
@@ -66,13 +67,14 @@ export function resolveTemplateTabSelection({
 
   return {
     isWebMode: false,
+    // „Auto“ steht nicht mehr zur Wahl: eine gespeicherte Auto-Auswahl (oder
+    // eine verschwundene Vorlage) fällt auf „Standard“, sonst auf die erste.
     selectedMineId:
-      selectedMineId === AUTO_TEMPLATE_ID
-        ? AUTO_TEMPLATE_ID
-        : (userTemplates.find((template) => template.id === selectedMineId)
-            ?.id ??
-          userTemplates[0]?.id ??
-          AUTO_TEMPLATE_ID),
+      userTemplates.find((template) => template.id === selectedMineId)?.id ??
+      userTemplates.find((template) => template.id === DEFAULT_TEMPLATE_ID)
+        ?.id ??
+      userTemplates[0]?.id ??
+      null,
     selectedWebIndex: null,
     selectedWebTemplate: null,
   };

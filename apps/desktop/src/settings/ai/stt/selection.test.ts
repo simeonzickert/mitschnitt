@@ -6,6 +6,7 @@ import {
   getLanguageSupportIssue,
   getPreferredProviderModel,
   resolveLiveLanguageSupportMode,
+  resolvePendingProvider,
 } from "./selection";
 
 describe("getDefaultSttModel", () => {
@@ -242,5 +243,27 @@ describe("resolveLiveLanguageSupportMode", () => {
         liveSupported: false,
       }),
     ).toBe(false);
+  });
+});
+
+describe("resolvePendingProvider", () => {
+  test("clears the pending provider once its model is saved", () => {
+    expect(resolvePendingProvider("openai", "openai", "whisper-1")).toBeNull();
+  });
+
+  test("keeps it while the saved provider is another one", () => {
+    expect(resolvePendingProvider("openai", "deepgram", "nova-3")).toBe(
+      "openai",
+    );
+  });
+
+  test("keeps it while the saved model for that provider is empty", () => {
+    expect(resolvePendingProvider("openai", "openai", undefined)).toBe(
+      "openai",
+    );
+  });
+
+  test("stays null without a pending provider", () => {
+    expect(resolvePendingProvider(null, "openai", "whisper-1")).toBeNull();
   });
 });

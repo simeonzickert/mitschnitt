@@ -30,6 +30,7 @@ import { useAudioPlayer } from "~/audio-player";
 import { TranscriptTimingNotice } from "~/imports/provenance-view";
 import { useListener } from "~/stt/contexts";
 import { useSessionTranscriptMetadata } from "~/stt/queries";
+import { useTranscriptEditable } from "~/session/transcript-editable";
 import { useUploadFile } from "~/stt/useUploadFile";
 
 export function TranscriptEditButton({
@@ -69,10 +70,12 @@ export function Transcript({
   sessionId,
   scrollRef,
   editMode = false,
+  onEditModeChange,
 }: {
   sessionId: string;
   scrollRef: RefObject<HTMLDivElement | null>;
   editMode?: boolean;
+  onEditModeChange?: (editMode: boolean) => void;
 }) {
   return (
     <TranscriptContent
@@ -80,6 +83,7 @@ export function Transcript({
       sessionId={sessionId}
       scrollRef={scrollRef}
       editMode={editMode}
+      onEditModeChange={onEditModeChange}
     />
   );
 }
@@ -88,12 +92,15 @@ function TranscriptContent({
   sessionId,
   scrollRef,
   editMode,
+  onEditModeChange,
 }: {
   sessionId: string;
   scrollRef: RefObject<HTMLDivElement | null>;
   editMode: boolean;
+  onEditModeChange?: (editMode: boolean) => void;
 }) {
   const screen = useTranscriptScreen({ sessionId });
+  const transcriptEditable = useTranscriptEditable(sessionId);
   const { uploadAudio, uploadTranscript } = useUploadFile(sessionId);
   const regenerateTranscript = useRegenerateTranscript(sessionId);
   const stopTranscription = useListener((state) => state.stopTranscription);
@@ -202,7 +209,8 @@ function TranscriptContent({
           currentActive={screen.currentActive}
           captureGeneration={screen.captureGeneration}
           scrollRef={scrollRef}
-          editMode={editMode && !screen.currentActive}
+          editMode={editMode && transcriptEditable}
+          onEditModeChange={transcriptEditable ? onEditModeChange : undefined}
         />
       )}
     </div>

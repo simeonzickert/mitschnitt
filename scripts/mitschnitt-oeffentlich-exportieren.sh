@@ -305,8 +305,10 @@ MAIL_AUSSCHLUSS_PFADE=(
 # Autorenadresse zur SACHE gehoert: eine SIL-Font-Lizenz (der Namensnennungs-
 # pflicht der Lizenz selbst) und die pyproject.toml des Originalprojekts
 # (Autorenangabe eines Upstream-Werkzeugs, kein eigener Code). Gefunden im
-# ersten Probelauf, nicht vorher bekannt.
-MAIL_AUSNAHME_PFADE_MUSTER='^plugins/windows/swift-lib/src/Resources/OFL\.txt$|^scripts/pyproject\.toml$'
+# ersten Probelauf, nicht vorher bekannt. Dritte Ausnahme (06.10.2026): der
+# MIT-Lizenzvermerk der eingebetteten Markdown-Bibliothek (Upstream #7993);
+# die Lizenz verlangt die Autorenangabe im Wortlaut.
+MAIL_AUSNAHME_PFADE_MUSTER='^plugins/windows/swift-lib/src/Resources/OFL\.txt$|^scripts/pyproject\.toml$|^crates/tiptap/vendor/mdast_util_to_markdown/LICENSE$'
 
 # Genaue Ausnahmen fuer den Schluessel-Musterfund, nach demselben Verfahren
 # wie ERLAUBTE_ZEILEN in namens-scrub-check.sh: Pfad-SHA-256 + SHA-256 der

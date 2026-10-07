@@ -1118,3 +1118,491 @@ async fn first_import_restores_legacy_edits_over_untouched_default_templates() {
             .unwrap();
     assert_eq!(title, "My Standup");
 }
+
+fn kalender_event(id: &str, calendar_id: &str, tracking: &str, started_at: &str) -> LegacyImportRow {
+    LegacyImportRow::Event(LegacyEvent {
+        id: id.to_string(),
+        tracking_id_event: tracking.to_string(),
+        calendar_id: calendar_id.to_string(),
+        title: "Termin".to_string(),
+        started_at: started_at.to_string(),
+        ended_at: String::new(),
+        location: String::new(),
+        meeting_link: String::new(),
+        description: String::new(),
+        note: String::new(),
+        recurrence_series_id: String::new(),
+        has_recurrence_rules: false,
+        is_all_day: false,
+        provider: "apple".to_string(),
+        participants_json: None,
+    })
+}
+
+fn kalender_zeile(id: &str, tracking: &str) -> LegacyImportRow {
+    LegacyImportRow::Calendar(LegacyCalendar {
+        id: id.to_string(),
+        tracking_id_calendar: tracking.to_string(),
+        name: "Privat".to_string(),
+        enabled: true,
+        provider: "apple".to_string(),
+        source: "iCloud".to_string(),
+        color: "#111111".to_string(),
+        connection_id: "conn-1".to_string(),
+    })
+}
+
+async fn kalender_import(db: &Db, run_id: &str, rows: Vec<LegacyImportRow>) -> LegacyImportItemResult {
+    begin_legacy_import_run(db.pool(), run_id, "/vault", false)
+        .await
+        .unwrap();
+    let item_id = format!("item-{run_id}");
+    apply_legacy_import_item(
+        db.pool(),
+        LegacyImportItem {
+            id: &item_id,
+            run_id,
+            source_path: "calendar-data.json",
+            source_kind: "calendar_data",
+            source_sha256: run_id,
+        },
+        &LegacyImportBatch {
+            rows,
+            ..Default::default()
+        },
+        false,
+    )
+    .await
+    .unwrap()
+}
+
+async fn zahl(db: &Db, sql: &str) -> i64 {
+    sqlx::query_scalar(sqlx::AssertSqlSafe(sql))
+        .fetch_one(db.pool())
+        .await
+        .unwrap()
+}
+
+/// Lage der Live-Datenbank vor der Reparatur: der Kalender-Sync hat Kalender K
+/// samt Termin angelegt; danach kommt ein anarlog-Import mit anderen IDs fuer
+/// dieselbe Kalender-Kennung.
+async fn sync_bestand() -> Db {
+    let db = test_db().await;
+    sqlx::query(
+        "INSERT INTO calendars \
+         (id, tracking_id_calendar, name, enabled, provider, source, color, connection_id) \
+         VALUES ('sync-cal', 'cal-A', 'Privat', 1, 'apple', 'iCloud', '#222222', 'conn-1')",
+    )
+    .execute(db.pool())
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO events (id, tracking_id_event, calendar_id, title, started_at, provider) \
+         VALUES ('sync-ev', 'ev-1', 'sync-cal', 'Termin', '2026-10-07T09:00:00Z', 'apple')",
+    )
+    .execute(db.pool())
+    .await
+    .unwrap();
+    db
+}
+
+#[tokio::test]
+async fn import_legt_keinen_zweiten_kalender_und_keinen_doppelten_termin_an() {
+    let db = sync_bestand().await;
+    let result = kalender_import(
+        &db,
+        "run-1",
+        vec![
+            kalender_zeile("import-cal", "cal-A"),
+            // derselbe Termin wie sync-ev, Beginn nur anders geschrieben
+            kalender_event("import-ev-1", "import-cal", "ev-1", "2026-10-07T09:00:00+00:00"),
+            // ein Termin, den der Sync nicht kennt
+            kalender_event("import-ev-2", "import-cal", "ev-2", "2026-10-08T09:00:00Z"),
+        ],
+    )
+    .await;
+
+    assert_eq!(result.imported_count, 1, "nur der unbekannte Termin ist neu");
+    assert_eq!(result.matched_count, 2, "Kalender und Doppel-Termin sind Treffer");
+    assert_eq!(result.conflict_count, 0);
+    assert_eq!(
+        zahl(&db, "SELECT COUNT(*) FROM calendars WHERE deleted_at IS NULL").await,
+        1,
+        "es bleibt ein sichtbarer Kalender"
+    );
+    assert_eq!(
+        zahl(
+            &db,
+            "SELECT COUNT(*) FROM calendars WHERE id = 'import-cal' AND deleted_at IS NOT NULL"
+        )
+        .await,
+        1,
+        "die Import-ID ist als Grabstein belegt"
+    );
+    assert_eq!(
+        zahl(&db, "SELECT COUNT(*) FROM events WHERE deleted_at IS NULL AND tracking_id_event = 'ev-1'").await,
+        1,
+        "es lebt nur ein Termin; der Import-Termin liegt als Grabstein da"
+    );
+    assert_eq!(
+        zahl(
+            &db,
+            "SELECT COUNT(*) FROM events WHERE id = 'import-ev-1' AND deleted_at IS NOT NULL AND calendar_id = 'sync-cal'"
+        )
+        .await,
+        1
+    );
+    let calendar_id: String =
+        sqlx::query_scalar("SELECT calendar_id FROM events WHERE id = 'import-ev-2'")
+            .fetch_one(db.pool())
+            .await
+            .unwrap();
+    assert_eq!(calendar_id, "sync-cal", "der neue Termin haengt am behaltenen Kalender");
+}
+
+#[tokio::test]
+async fn ein_zweiter_import_derselben_daten_aendert_nichts() {
+    let db = sync_bestand().await;
+    let rows = || {
+        vec![
+            kalender_zeile("import-cal", "cal-A"),
+            kalender_event("import-ev-1", "import-cal", "ev-1", "2026-10-07T09:00:00Z"),
+            kalender_event("import-ev-2", "import-cal", "ev-2", "2026-10-08T09:00:00Z"),
+        ]
+    };
+    kalender_import(&db, "run-1", rows()).await;
+    let calendars = zahl(&db, "SELECT COUNT(*) FROM calendars").await;
+    let events = zahl(&db, "SELECT COUNT(*) FROM events").await;
+
+    let result = kalender_import(&db, "run-2", rows()).await;
+
+    assert_eq!(result.imported_count, 0);
+    assert_eq!(result.conflict_count, 0);
+    assert_eq!(zahl(&db, "SELECT COUNT(*) FROM calendars").await, calendars);
+    assert_eq!(zahl(&db, "SELECT COUNT(*) FROM events").await, events);
+}
+
+#[tokio::test]
+async fn kalender_ohne_bestandstreffer_werden_wie_bisher_angelegt() {
+    let db = sync_bestand().await;
+    let result = kalender_import(
+        &db,
+        "run-1",
+        vec![
+            // andere Kennung
+            kalender_zeile("import-b", "cal-B"),
+            // ohne Kennung: nicht erkennbar, also eigene Zeile
+            kalender_zeile("import-leer", ""),
+            kalender_event("import-ev-b", "import-b", "ev-1", "2026-10-07T09:00:00Z"),
+        ],
+    )
+    .await;
+
+    assert_eq!(result.imported_count, 3);
+    assert_eq!(
+        zahl(&db, "SELECT COUNT(*) FROM calendars WHERE deleted_at IS NULL").await,
+        3
+    );
+    let calendar_id: String =
+        sqlx::query_scalar("SELECT calendar_id FROM events WHERE id = 'import-ev-b'")
+            .fetch_one(db.pool())
+            .await
+            .unwrap();
+    assert_eq!(calendar_id, "import-b", "gleiche tracking_id_event an anderem Kalender ist kein Zwilling");
+}
+
+fn kalender_sitzung(event_id: &str, event_json: &str) -> LegacyImportRow {
+    LegacyImportRow::Session(LegacySession {
+        id: "session-k".to_string(),
+        owner_user_id: "user-1".to_string(),
+        title: "Planung".to_string(),
+        created_at: "2026-07-10T12:00:00Z".to_string(),
+        started_at: String::new(),
+        ended_at: String::new(),
+        event_id: event_id.to_string(),
+        external_event_id: "ev-1".to_string(),
+        external_provider: String::new(),
+        series_id: String::new(),
+        event_json: event_json.to_string(),
+        metadata_json: "{}".to_string(),
+        folder_path: "work".to_string(),
+        recovery_status: None,
+    })
+}
+
+async fn sitzung_verweise(db: &Db) -> (String, String) {
+    sqlx::query_as(
+        "SELECT event_id, json_extract(event_json, '$.calendar_id') FROM sessions WHERE id = 'session-k'",
+    )
+    .fetch_one(db.pool())
+    .await
+    .unwrap()
+}
+
+#[tokio::test]
+async fn importierte_sitzung_zeigt_auf_lebenden_termin_am_lebenden_kalender() {
+    let db = sync_bestand().await;
+    let rows = || {
+        vec![
+            kalender_zeile("import-cal", "cal-A"),
+            kalender_event("import-ev-1", "import-cal", "ev-1", "2026-10-07T09:00:00Z"),
+            kalender_sitzung(
+                "import-ev-1",
+                r#"{"tracking_id":"ev-1","calendar_id":"import-cal","title":"Termin"}"#,
+            ),
+        ]
+    };
+    kalender_import(&db, "run-1", rows()).await;
+
+    assert_eq!(
+        sitzung_verweise(&db).await,
+        ("sync-ev".to_string(), "sync-cal".to_string())
+    );
+    assert_eq!(
+        zahl(
+            &db,
+            "SELECT COUNT(*) FROM sessions s JOIN events e ON e.id = s.event_id \
+             JOIN calendars c ON c.id = e.calendar_id \
+             WHERE s.id = 'session-k' AND e.deleted_at IS NULL AND c.deleted_at IS NULL"
+        )
+        .await,
+        1,
+        "Termin und Kalender der Sitzung leben"
+    );
+
+    // Zweiter Import derselben Daten: kein Konflikt, nichts bewegt sich.
+    let result = kalender_import(&db, "run-2", rows()).await;
+    assert_eq!(result.conflict_count, 0);
+    assert_eq!(
+        sitzung_verweise(&db).await,
+        ("sync-ev".to_string(), "sync-cal".to_string())
+    );
+}
+
+#[tokio::test]
+async fn ist_der_sync_zwilling_geloescht_bleibt_der_lebende_import_termin() {
+    let db = sync_bestand().await;
+    sqlx::query("UPDATE events SET deleted_at = '2026-09-25T12:00:00Z' WHERE id = 'sync-ev'")
+        .execute(db.pool())
+        .await
+        .unwrap();
+    kalender_import(
+        &db,
+        "run-1",
+        vec![
+            kalender_zeile("import-cal", "cal-A"),
+            kalender_event("import-ev-1", "import-cal", "ev-1", "2026-10-07T09:00:00Z"),
+            kalender_sitzung("import-ev-1", r#"{"calendar_id":"import-cal"}"#),
+        ],
+    )
+    .await;
+
+    assert_eq!(
+        zahl(
+            &db,
+            "SELECT COUNT(*) FROM events WHERE id = 'import-ev-1' AND deleted_at IS NULL AND calendar_id = 'sync-cal'"
+        )
+        .await,
+        1,
+        "lebend, am behaltenen Kalender"
+    );
+    assert_eq!(
+        sitzung_verweise(&db).await,
+        ("import-ev-1".to_string(), "sync-cal".to_string())
+    );
+}
+
+#[tokio::test]
+async fn aktiver_import_kalender_aktiviert_die_behaltene_zeile() {
+    let db = sync_bestand().await;
+    sqlx::query("UPDATE calendars SET enabled = 0 WHERE id = 'sync-cal'")
+        .execute(db.pool())
+        .await
+        .unwrap();
+    kalender_import(&db, "run-1", vec![kalender_zeile("import-cal", "cal-A")]).await;
+    assert_eq!(
+        zahl(&db, "SELECT enabled FROM calendars WHERE id = 'sync-cal'").await,
+        1,
+        "im Import aktiv: sonst raeumt die Inventur die importierten Termine ab"
+    );
+}
+
+#[tokio::test]
+async fn inaktiver_import_kalender_laesst_die_behaltene_zeile_wie_sie_ist() {
+    let db = sync_bestand().await; // sync-cal ist aktiviert
+    let inaktiv = LegacyImportRow::Calendar(LegacyCalendar {
+        id: "import-cal".to_string(),
+        tracking_id_calendar: "cal-A".to_string(),
+        name: "Privat".to_string(),
+        enabled: false,
+        provider: "apple".to_string(),
+        source: "iCloud".to_string(),
+        color: "#111111".to_string(),
+        connection_id: "conn-1".to_string(),
+    });
+    kalender_import(&db, "run-1", vec![inaktiv]).await;
+    assert_eq!(
+        zahl(&db, "SELECT enabled FROM calendars WHERE id = 'sync-cal'").await,
+        1,
+        "ein inaktiver Import-Kalender schaltet nichts aus"
+    );
+}
+
+#[tokio::test]
+async fn lebender_zwilling_ohne_teilnehmer_uebernimmt_die_des_import_termins() {
+    let db = sync_bestand().await;
+    let mut termin = kalender_event("import-ev-1", "import-cal", "ev-1", "2026-10-07T09:00:00Z");
+    if let LegacyImportRow::Event(event) = &mut termin {
+        event.participants_json = Some(r#"[{"email":"a@example.com"}]"#.to_string());
+    }
+    kalender_import(&db, "run-1", vec![kalender_zeile("import-cal", "cal-A"), termin]).await;
+    let teilnehmer: Option<String> =
+        sqlx::query_scalar("SELECT participants_json FROM events WHERE id = 'sync-ev'")
+            .fetch_one(db.pool())
+            .await
+            .unwrap();
+    assert_eq!(teilnehmer.as_deref(), Some(r#"[{"email":"a@example.com"}]"#));
+}
+
+#[tokio::test]
+async fn erneuter_import_schaltet_einen_ausgeschalteten_kalender_nicht_wieder_ein() {
+    let db = sync_bestand().await;
+    sqlx::query("UPDATE calendars SET enabled = 0 WHERE id = 'sync-cal'")
+        .execute(db.pool())
+        .await
+        .unwrap();
+    kalender_import(&db, "run-1", vec![kalender_zeile("import-cal", "cal-A")]).await;
+    assert_eq!(zahl(&db, "SELECT enabled FROM calendars WHERE id = 'sync-cal'").await, 1);
+    // Nutzer schaltet aus, der Import laeuft erneut.
+    sqlx::query("UPDATE calendars SET enabled = 0 WHERE id = 'sync-cal'")
+        .execute(db.pool())
+        .await
+        .unwrap();
+    kalender_import(&db, "run-2", vec![kalender_zeile("import-cal", "cal-A")]).await;
+    assert_eq!(zahl(&db, "SELECT enabled FROM calendars WHERE id = 'sync-cal'").await, 0);
+}
+
+#[tokio::test]
+async fn sitzung_an_verschobenem_termin_findet_den_einzigen_lebenden() {
+    let db = sync_bestand().await; // sync-ev lebt, 2026-10-07
+    kalender_import(
+        &db,
+        "run-1",
+        vec![
+            kalender_zeile("import-cal", "cal-A"),
+            // alter Beginn: kein Zwilling nach Zeitpunkt, lebt als eigener Termin ...
+            kalender_event("import-ev-1", "import-cal", "ev-1", "2026-10-01T09:00:00Z"),
+            kalender_sitzung(
+                "import-ev-1",
+                r#"{"calendar_id":"import-cal"}"#,
+            ),
+        ],
+    )
+    .await;
+    // ... bei zwei Lebenden gibt es keinen eindeutigen Rueckfall: Verweis bleibt.
+    assert_eq!(sitzung_verweise(&db).await.0, "import-ev-1");
+
+    // Nur ein Lebender: der alte Termin ist geloescht, der Rueckfall greift.
+    let db = sync_bestand().await;
+    sqlx::query(
+        "INSERT INTO events (id, tracking_id_event, calendar_id, title, started_at, provider, deleted_at) \
+         VALUES ('alt-ev', 'ev-1', 'sync-cal', 'Termin', '2026-10-01T09:00:00Z', 'apple', '2026-09-20T10:00:00Z')",
+    )
+    .execute(db.pool())
+    .await
+    .unwrap();
+    kalender_import(
+        &db,
+        "run-1",
+        vec![
+            kalender_zeile("import-cal", "cal-A"),
+            kalender_sitzung("alt-ev", r#"{"calendar_id":"import-cal"}"#),
+        ],
+    )
+    .await;
+    assert_eq!(sitzung_verweise(&db).await.0, "sync-ev");
+}
+
+#[tokio::test]
+async fn import_grabstein_wird_nicht_wiederbelebt_wenn_der_sync_zwilling_geloescht_wird() {
+    let db = sync_bestand().await;
+    let rows = || {
+        vec![
+            kalender_zeile("import-cal", "cal-A"),
+            kalender_event("import-ev-1", "import-cal", "ev-1", "2026-10-07T09:00:00Z"),
+        ]
+    };
+    kalender_import(&db, "run-1", rows()).await;
+    sqlx::query("UPDATE events SET deleted_at = '2026-10-08T10:00:00Z' WHERE id = 'sync-ev'")
+        .execute(db.pool())
+        .await
+        .unwrap();
+    kalender_import(&db, "run-2", rows()).await;
+    assert_eq!(
+        zahl(&db, "SELECT COUNT(*) FROM events WHERE deleted_at IS NULL").await,
+        0,
+        "ein geloeschter oder verschobener Termin kommt nicht als Phantom zurueck"
+    );
+}
+
+#[tokio::test]
+async fn rueckfall_gilt_nicht_fuer_serien() {
+    let db = sync_bestand().await;
+    sqlx::query(
+        "INSERT INTO events (id, tracking_id_event, calendar_id, title, started_at, provider, deleted_at, \
+         has_recurrence_rules, recurrence_series_id) \
+         VALUES ('serie-alt', 'ev-1', 'sync-cal', 'Serie', '2026-10-01T09:00:00Z', 'apple', '2026-09-20T10:00:00Z', 1, 'serie-1')",
+    )
+    .execute(db.pool())
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO sessions (id, title, event_id, event_json) VALUES ('session-k', 'x', 'serie-alt', '')",
+    )
+    .execute(db.pool())
+    .await
+    .unwrap();
+    crate::consolidate_calendar_duplicates(db.pool()).await.unwrap();
+    assert_eq!(sitzung_event(&db).await, "serie-alt", "Serie: keine Umhaengung");
+
+    // Gegenprobe ohne Serie: derselbe Aufbau haengt um.
+    sqlx::query("UPDATE events SET has_recurrence_rules = 0, recurrence_series_id = '' WHERE id = 'serie-alt'")
+        .execute(db.pool())
+        .await
+        .unwrap();
+    crate::consolidate_calendar_duplicates(db.pool()).await.unwrap();
+    assert_eq!(sitzung_event(&db).await, "sync-ev");
+}
+
+async fn sitzung_event(db: &Db) -> String {
+    sqlx::query_scalar("SELECT event_id FROM sessions WHERE id = 'session-k'")
+        .fetch_one(db.pool())
+        .await
+        .unwrap()
+}
+
+#[tokio::test]
+async fn bereinigung_haengt_zurueckgeschriebene_alt_ids_wieder_um() {
+    let db = sync_bestand().await;
+    kalender_import(&db, "run-1", vec![kalender_zeile("import-cal", "cal-A")]).await;
+    // Eine juengere Quell-Sitzung schreibt die alten IDs zurueck.
+    sqlx::query(
+        "INSERT INTO sessions (id, title, event_id, event_json) VALUES \
+         ('session-k', 'x', 'alt-ev', '{\"calendar_id\":\"import-cal\"}')",
+    )
+    .execute(db.pool())
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO events (id, tracking_id_event, calendar_id, title, started_at, provider, deleted_at) \
+         VALUES ('alt-ev', 'ev-1', 'sync-cal', 'Termin', '2026-10-07T09:00:00Z', 'apple', '2026-09-20T10:00:00Z')",
+    )
+    .execute(db.pool())
+    .await
+    .unwrap();
+    crate::consolidate_calendar_duplicates(db.pool()).await.unwrap();
+    assert_eq!(
+        sitzung_verweise(&db).await,
+        ("sync-ev".to_string(), "sync-cal".to_string())
+    );
+}

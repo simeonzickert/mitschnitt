@@ -122,7 +122,15 @@ async fn frisch_bis_standard_step() -> Db {
 
 #[tokio::test]
 async fn frische_datenbank_traegt_die_vorlage_mit_genau_diesen_abschnitten() {
-    let db = test_db().await;
+    // Gegenstand ist der Stand der Vorlage VOR dem Schnitt vom 06.10.2026
+    // (20260911120000 entfernt sie aus der Auslieferung).
+    let db = Db::connect_memory_plain().await.unwrap();
+    anlg_db_migrate::migrate(
+        &db,
+        schema_through("20260907120000_bitte_gegenpruefen_in_den_rahmen"),
+    )
+    .await
+    .unwrap();
 
     let row = get_template(db.pool(), VORLAGE_ID)
         .await
@@ -341,9 +349,15 @@ async fn nach_tabellen_reparatur_zeigt_der_standard_nicht_ins_leere() {
 
     prepare_schema(&db).await.unwrap();
 
+    // 'mitschnitt-standard' ist seit 20260911120000 aus der Auslieferung
+    // entfernt, auch nach einer Reparatur; der Standard ist 'mitschnitt-kompakt'.
     assert!(
-        get_template(db.pool(), VORLAGE_ID).await.unwrap().is_some(),
-        "Vorlage 'mitschnitt-standard' fehlt nach der Reparatur"
+        get_template(db.pool(), VORLAGE_ID).await.unwrap().is_none(),
+        "Vorlage 'mitschnitt-standard' ist nach der Reparatur wieder da"
+    );
+    assert!(
+        get_template(db.pool(), "mitschnitt-kompakt").await.unwrap().is_some(),
+        "Vorlage 'mitschnitt-kompakt' fehlt nach der Reparatur"
     );
     assert_standard_vorlage_ist_aufloesbar(&db).await;
     assert_vorlagenbestand_steht(&db).await;
@@ -398,7 +412,18 @@ async fn zweiter_lauf_desselben_sql_aendert_nichts() {
     };
 
     let vorher = abbild(&db).await;
-    for id in [VORLAGE_STEP_ID, STANDARD_STEP_ID] {
+    // Der Seed bringt 'mitschnitt-standard' bei jedem Nachspielen zurueck; der
+    // Schnitt vom 06.10.2026 (Reparaturpfad: immer zuletzt) nimmt ihn wieder weg.
+    for id in [
+        VORLAGE_STEP_ID,
+        STANDARD_STEP_ID,
+        // Wie im Reparaturpfad: die Steps, die den Seed-Stand erst auf den
+        // Endstand bringen, muessen vor dem Schnitt laufen.
+        "20260904150000_vorlagen_aufraeumen",
+        "20260904160000_disziplin_in_den_rahmen",
+        "20260907120000_bitte_gegenpruefen_in_den_rahmen",
+        "20260911120000_vorlagen_standard",
+    ] {
         sqlx::raw_sql(step(id).sql)
             .execute(db.pool())
             .await
@@ -406,6 +431,6 @@ async fn zweiter_lauf_desselben_sql_aendert_nichts() {
     }
     let nachher = abbild(&db).await;
 
-    assert_eq!(vorher.0.len(), 7, "keine Duplikate in templates");
+    assert_eq!(vorher.0.len(), 3, "keine Duplikate in templates");
     assert_eq!(vorher, nachher);
 }

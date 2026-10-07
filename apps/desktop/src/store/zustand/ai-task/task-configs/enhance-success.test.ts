@@ -6,7 +6,6 @@ import { json2md } from "@anlg/editor/markdown";
 import type { TaskConfig } from ".";
 import { enhanceSuccess, runEnhanceSuccess } from "./enhance-success";
 
-import { MIN_SUMMARY_CHARACTERS } from "~/services/enhancer/summary-length";
 import { useLiveTitle } from "~/store/zustand/live-title";
 
 const mocks = vi.hoisted(() => ({
@@ -256,7 +255,7 @@ describe("enhanceSuccess.onSuccess", () => {
     );
   });
 
-  it("persists a short summary and tags within the transcript length and section cap", async () => {
+  it("persists a generated summary without cutting it to the transcript length or section count", async () => {
     mocks.loadSessionContentSnapshot.mockResolvedValue(
       createSnapshot("Meeting title"),
     );
@@ -294,11 +293,9 @@ describe("enhanceSuccess.onSuccess", () => {
     const markdown = json2md(JSON.parse(content)).trim();
     expect(markdown).toContain("# First");
     expect(markdown).toContain("# Second");
-    expect(markdown).not.toContain("# Third");
+    expect(markdown).toContain("# Third");
+    expect(markdown).toContain("c".repeat(100));
     expect(markdown).toContain("#launch");
-    expect(
-      Array.from(markdown.replace(/\s+/gu, " ")).length,
-    ).toBeLessThanOrEqual(MIN_SUMMARY_CHARACTERS);
   });
 
   it("keeps every selected template section for a short transcript", async () => {

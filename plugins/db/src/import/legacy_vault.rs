@@ -154,6 +154,14 @@ async fn import_vault(
         }
     }
 
+    if !dry_run {
+        // Aufraeumen ist Zugabe: scheitert es, bleibt der Import gueltig und der
+        // Lauf wird normal abgeschlossen.
+        if let Err(error) = anlg_db_app::consolidate_calendar_duplicates(pool).await {
+            tracing::warn!(%error, "Kalender-Bereinigung nach dem Import fehlgeschlagen");
+        }
+    }
+
     if eigener_datenordner {
         anlg_db_app::finish_legacy_import_run(pool, &run_id).await?;
     } else {

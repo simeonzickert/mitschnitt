@@ -1,8 +1,6 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  constrainSummaryLength,
-  countNormalizedCharacters,
   countTranscriptWordCharacters,
   formatSummaryLengthModeGuidance,
   formatSummaryLengthGuidance,
@@ -19,7 +17,7 @@ describe("summary length policy", () => {
     ).toBe(9);
   });
 
-  it("caps short transcripts at two sections and sizes the output budget", () => {
+  it("sizes the prompt guidance for short transcripts", () => {
     const policy = getSummaryLengthPolicy([
       {
         startedAt: null,
@@ -32,8 +30,6 @@ describe("summary length policy", () => {
 
     expect(policy).toEqual({
       transcriptCharacters: 200,
-      maxCharacters: 320,
-      maxSections: 2,
       guidance: {
         maxCharacters: 320,
         minSections: 1,
@@ -90,7 +86,7 @@ describe("summary length policy", () => {
     expect(formatSummaryLengthGuidance(null)).toBeNull();
   });
 
-  it("keeps long transcripts on the normal section limit", () => {
+  it("keeps the transcript length for long transcripts", () => {
     const policy = getSummaryLengthPolicy([
       {
         startedAt: null,
@@ -103,12 +99,10 @@ describe("summary length policy", () => {
 
     expect(policy).toMatchObject({
       transcriptCharacters: 10_000,
-      maxCharacters: 10_000,
-      maxSections: null,
     });
   });
 
-  it("reduces output budgets for balanced and crisp modes", () => {
+  it("reduces prompt guidance for balanced and crisp modes", () => {
     const transcripts = [
       {
         startedAt: null,
@@ -120,15 +114,12 @@ describe("summary length policy", () => {
     ];
 
     expect(getSummaryLengthPolicy(transcripts, "detailed")).toMatchObject({
-      maxCharacters: 10_000,
       guidance: { maxCharacters: 7_500, minSections: 3, maxSections: 6 },
     });
     expect(getSummaryLengthPolicy(transcripts, "balanced")).toMatchObject({
-      maxCharacters: 8_750,
       guidance: { maxCharacters: 6_000, minSections: 3, maxSections: 6 },
     });
     expect(getSummaryLengthPolicy(transcripts, "crisp")).toMatchObject({
-      maxCharacters: 7_500,
       guidance: { maxCharacters: 4_500, minSections: 3, maxSections: 5 },
     });
   });
@@ -150,63 +141,5 @@ describe("summary length policy", () => {
     expect(formatSummaryLengthModeGuidance("crisp", true)).toContain(
       "Preserve every requested template section",
     );
-  });
-
-  it("keeps no more than two sections or the transcript character count", () => {
-    const markdown = `# First
-
-- ${"a".repeat(40)}
-
-# Second
-
-- ${"b".repeat(40)}
-
-# Third
-
-- ${"c".repeat(100)}`;
-    const result = constrainSummaryLength(markdown, {
-      transcriptCharacters: 160,
-      maxCharacters: 160,
-      maxSections: 2,
-    });
-
-    expect(result).toContain("# First");
-    expect(result).toContain("# Second");
-    expect(result).not.toContain("# Third");
-    expect(countNormalizedCharacters(result)).toBeLessThanOrEqual(160);
-  });
-
-  it("never truncates a summary in the middle of a sentence", () => {
-    const result = constrainSummaryLength(
-      `# Decision
-
-- The team approved the launch. This additional explanation does not fit within the summary limit.
-
-# Follow-up`,
-      {
-        transcriptCharacters: 60,
-        maxCharacters: 60,
-        maxSections: null,
-      },
-    );
-
-    expect(result).toBe("# Decision\n\n- The team approved the launch.");
-    expect(countNormalizedCharacters(result)).toBeLessThanOrEqual(60);
-  });
-
-  it("keeps period-less bullets at a word boundary", () => {
-    const result = constrainSummaryLength(
-      `# Decision
-
-- alpha beta gamma delta epsilon zeta`,
-      {
-        transcriptCharacters: 30,
-        maxCharacters: 30,
-        maxSections: null,
-      },
-    );
-
-    expect(result).toBe("# Decision\n\n- alpha beta");
-    expect(countNormalizedCharacters(result)).toBeLessThanOrEqual(30);
   });
 });

@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
     (_statements: Array<{ sql: string; params: unknown[] }>) =>
       Promise.resolve(_statements.map(() => 1)),
   ),
+  promoteVoiceprintCandidates: vi.fn().mockResolvedValue({ status: "ok" }),
   humanRows: [] as Array<Record<string, unknown>>,
   participantRows: [] as Array<Record<string, unknown>>,
   queryOptions: [] as Array<{
@@ -17,6 +18,10 @@ const mocks = vi.hoisted(() => ({
     enabled?: boolean;
   }>,
   transcriptRows: [] as Array<Record<string, unknown>>,
+}));
+
+vi.mock("@anlg/plugin-transcription", () => ({
+  commands: { promoteVoiceprintCandidates: mocks.promoteVoiceprintCandidates },
 }));
 
 vi.mock("~/db", () => ({
@@ -49,12 +54,16 @@ vi.mock("~/db", () => ({
 import {
   applyLiveTranscriptDeltaToDatabase,
   appendTranscriptWordsAndHints,
+  assignSessionTranscriptSpeaker,
   assignTranscriptSpeaker,
   createLiveTranscript,
   createTranscript,
   flushLiveTranscriptDeltasToDatabase,
   mergeTranscriptSegments,
   removeHumanSpeakerAssignments,
+  splitTranscriptSpeaker,
+  clearTranscriptWordTexts,
+  restoreTranscriptWordTexts,
   updateTranscriptSegmentText,
   useSessionParticipantHumanIds,
   useSessionTranscriptMetadata,
@@ -614,6 +623,191 @@ describe("transcript SQLite queries", () => {
     ]);
   });
 
+  it("persists bounded assignments without expanding to adjacent words", async () => {
+    mocks.execute.mockResolvedValueOnce([speakerRow("word-2", 0)]);
+    await assignTranscriptSpeaker({
+      transcriptId: "transcript-1",
+      segmentKey: {
+        channel: "RemoteParty",
+        speaker_index: 0,
+        speaker_human_id: null,
+      },
+      humanId: "human-1",
+      anchorWordId: "word-2",
+      mode: "segment",
+      wordIds: ["word-2"],
+      extendToAdjacent: false,
+    });
+    const statement = mocks.executeTransaction.mock.calls[0]?.[0]?.[0];
+    const hints = JSON.parse(String(statement?.params[1]));
+    const assignment = hints.find(
+      (hint: { type: string }) => hint.type === "user_speaker_assignment",
+    );
+    expect(JSON.parse(assignment.value)).toMatchObject({
+      word_ids: ["word-2"],
+      extend_to_adjacent: false,
+    });
+  });
+
+  function speakerRow(wordId: string, speakerIndex: number, humanId?: string) {
+    return {
+      words_json: JSON.stringify([
+        { id: wordId, text: wordId, start_ms: 0, end_ms: 100, channel: 1 },
+      ]),
+      speaker_hints_json: JSON.stringify([
+        {
+          id: `${wordId}:provider_speaker_index`,
+          word_id: wordId,
+          type: "provider_speaker_index",
+          value: JSON.stringify({ channel: 1, speaker_index: speakerIndex }),
+        },
+        ...(humanId
+          ? [
+              {
+                id: `${wordId}:user_speaker_assignment`,
+                word_id: wordId,
+                type: "user_speaker_assignment",
+                value: JSON.stringify({
+                  human_id: humanId,
+                  scope: "speaker",
+                  channel: 1,
+                  speaker_index: speakerIndex,
+                }),
+              },
+            ]
+          : []),
+      ]),
+      content_revision: 0,
+      pending_deltas_json: "[]",
+    };
+  }
+
+  it("does not treat a speaker index as an identity across separate captures", async () => {
+    mocks.execute
+      .mockResolvedValueOnce([{ id: "transcript-1" }, { id: "transcript-2" }])
+      .mockResolvedValueOnce([speakerRow("word-1", 0)]);
+
+    await assignSessionTranscriptSpeaker({
+      sessionId: "session-1",
+      transcriptId: "transcript-1",
+      segmentKey: {
+        channel: "RemoteParty",
+        speaker_index: 0,
+        speaker_human_id: null,
+      },
+      humanId: "alice",
+      anchorWordId: "word-1",
+    });
+
+    expect(mocks.execute).toHaveBeenCalledTimes(2);
+    expect(mocks.executeTransaction).toHaveBeenCalledTimes(1);
+    expect(mocks.executeTransaction.mock.calls[0][0][0].params[3]).toBe(
+      "transcript-1",
+    );
+  });
+
+  it("matches already identified people across resumed captures instead of reusing indexes", async () => {
+    mocks.execute
+      .mockResolvedValueOnce([
+        { id: "transcript-1" },
+        { id: "transcript-2" },
+        { id: "transcript-3" },
+      ])
+      .mockResolvedValueOnce([speakerRow("word-1", 0, "alice")])
+      .mockResolvedValueOnce([speakerRow("word-2", 7, "alice")])
+      .mockResolvedValueOnce([speakerRow("word-3", 0, "bob")]);
+
+    await assignSessionTranscriptSpeaker({
+      sessionId: "session-1",
+      transcriptId: "transcript-1",
+      segmentKey: {
+        channel: "RemoteParty",
+        speaker_index: 0,
+        speaker_human_id: "alice",
+      },
+      humanId: "carol",
+      anchorWordId: "word-1",
+    });
+
+    const updates = mocks.executeTransaction.mock.calls.map(
+      ([statements]) => statements[0],
+    );
+    expect(updates.map((statement) => statement.params[3])).toEqual([
+      "transcript-1",
+      "transcript-2",
+    ]);
+    const hints = JSON.parse(String(updates[1].params[1]));
+    expect(JSON.parse(hints.at(-1).value)).toEqual({
+      human_id: "carol",
+      scope: "segment",
+      word_ids: ["word-2"],
+      extend_to_adjacent: false,
+    });
+  });
+
+  it("keeps selected words when Apply to all has no speaker index", async () => {
+    mocks.execute
+      .mockResolvedValueOnce([{ id: "transcript-1" }])
+      .mockResolvedValueOnce([
+        {
+          words_json: JSON.stringify(
+            ["word-1", "word-2"].map((id, index) => ({
+              id,
+              text: id,
+              start_ms: index * 100,
+              end_ms: index * 100 + 100,
+              channel: 2,
+            })),
+          ),
+          speaker_hints_json: "[]",
+          content_revision: 0,
+          pending_deltas_json: "[]",
+        },
+      ]);
+
+    await assignSessionTranscriptSpeaker({
+      sessionId: "session-1",
+      transcriptId: "transcript-1",
+      segmentKey: {
+        channel: "MixedCapture",
+        speaker_index: null,
+        speaker_human_id: null,
+      },
+      humanId: "alice",
+      anchorWordId: "word-1",
+      wordIds: ["word-1", "word-2"],
+    });
+
+    const hints = JSON.parse(
+      String(mocks.executeTransaction.mock.calls[0][0][0].params[1]),
+    );
+    expect(JSON.parse(hints[0].value)).toEqual({
+      human_id: "alice",
+      scope: "segment",
+      word_ids: ["word-1", "word-2"],
+      extend_to_adjacent: false,
+    });
+    expect(mocks.promoteVoiceprintCandidates).not.toHaveBeenCalled();
+  });
+
+  it("rejects a stale source transcript instead of changing other captures", async () => {
+    mocks.execute.mockResolvedValueOnce([{ id: "transcript-2" }]);
+    await expect(
+      assignSessionTranscriptSpeaker({
+        sessionId: "session-1",
+        transcriptId: "transcript-1",
+        segmentKey: {
+          channel: "RemoteParty",
+          speaker_index: 0,
+          speaker_human_id: "alice",
+        },
+        humanId: "bob",
+        anchorWordId: "word-1",
+      }),
+    ).rejects.toThrow("no longer in session");
+    expect(mocks.executeTransaction).not.toHaveBeenCalled();
+  });
+
   it("persists merged unlabeled speaker indexes through the optimistic transcript update", async () => {
     mocks.execute.mockResolvedValueOnce([
       {
@@ -727,6 +921,294 @@ describe("transcript SQLite queries", () => {
       }),
       expect.objectContaining({ id: "word-3", text: "Again" }),
     ]);
+  });
+
+  it("clears only selected transcript words while preserving timing and speaker metadata", async () => {
+    const words = ["one", "two", "three"].map((text, index) => ({
+      id: `word-${index}`,
+      text,
+      start_ms: index * 100,
+      end_ms: (index + 1) * 100,
+      channel: 1,
+    }));
+    const hints = [
+      {
+        id: "hint-1",
+        word_id: "word-0",
+        type: "user_speaker_assignment",
+        value: JSON.stringify({ human_id: "human-1" }),
+      },
+    ];
+    mocks.execute.mockResolvedValueOnce([
+      {
+        words_json: JSON.stringify(words),
+        speaker_hints_json: JSON.stringify(hints),
+      },
+    ]);
+    await updateTranscriptSegmentText({
+      transcriptId: "transcript-1",
+      wordIds: ["word-0", "word-2"],
+      text: "",
+    });
+    const statement = mocks.executeTransaction.mock.calls[0]?.[0]?.[0];
+    expect(JSON.parse(String(statement?.params[0]))).toEqual([
+      { ...words[0], text: "" },
+      words[1],
+      { ...words[2], text: "" },
+    ]);
+    expect(JSON.parse(String(statement?.params[1]))).toEqual(hints);
+  });
+
+  const threeWords = () =>
+    ["one", "two", "three"].map((text, index) => ({
+      id: `word-${index}`,
+      text,
+      start_ms: index * 100,
+      end_ms: (index + 1) * 100,
+      channel: 1,
+    }));
+  const transcriptRow = (words: unknown[]) => [
+    { words_json: JSON.stringify(words), speaker_hints_json: "[]" },
+  ];
+
+  it("reports false when none of the words exists any more (Fix-Runde B6)", async () => {
+    mocks.execute.mockResolvedValueOnce(transcriptRow(threeWords()));
+    await expect(
+      updateTranscriptSegmentText({
+        transcriptId: "transcript-1",
+        wordIds: ["gone-1", "gone-2"],
+        text: "x",
+      }),
+    ).resolves.toBe(false);
+
+    mocks.execute.mockResolvedValueOnce(transcriptRow(threeWords()));
+    await expect(
+      updateTranscriptSegmentText({
+        transcriptId: "transcript-1",
+        wordIds: ["word-1"],
+        text: "zwei",
+      }),
+    ).resolves.toBe(true);
+  });
+
+  it("restores the exact word texts a block delete cleared (Fix-Runde B5)", async () => {
+    mocks.execute.mockResolvedValueOnce(transcriptRow(threeWords()));
+    const previous = await clearTranscriptWordTexts({
+      transcriptId: "transcript-1",
+      wordIds: ["word-0", "word-2"],
+    });
+    expect(previous).toEqual({ "word-0": "one", "word-2": "three" });
+    const cleared = JSON.parse(
+      String(mocks.executeTransaction.mock.calls[0]?.[0]?.[0]?.params[0]),
+    );
+    expect(cleared.map((word: { text: string }) => word.text)).toEqual([
+      "",
+      "two",
+      "",
+    ]);
+
+    mocks.execute.mockResolvedValueOnce(transcriptRow(cleared));
+    await expect(
+      restoreTranscriptWordTexts({
+        transcriptId: "transcript-1",
+        texts: previous,
+      }),
+    ).resolves.toBe(2);
+    const restored = JSON.parse(
+      String(mocks.executeTransaction.mock.calls[1]?.[0]?.[0]?.params[0]),
+    );
+    expect(restored.map((word: { text: string }) => word.text)).toEqual([
+      "one",
+      "two",
+      "three",
+    ]);
+  });
+
+  it("does not overwrite words typed into after the delete when undoing (Fix-Runde B2 Punkt 5)", async () => {
+    const words = threeWords().map((word) =>
+      word.id === "word-0"
+        ? { ...word, text: "" }
+        : word.id === "word-2"
+          ? { ...word, text: "typed since" }
+          : word,
+    );
+    mocks.execute.mockResolvedValueOnce(transcriptRow(words));
+    await expect(
+      restoreTranscriptWordTexts({
+        transcriptId: "transcript-1",
+        texts: { "word-0": "one", "word-2": "three" },
+      }),
+    ).resolves.toBe(1);
+    const written = JSON.parse(
+      String(mocks.executeTransaction.mock.calls[0]?.[0]?.[0]?.params[0]),
+    );
+    expect(written.map((word: { text: string }) => word.text)).toEqual([
+      "one",
+      "two",
+      "typed since",
+    ]);
+  });
+
+  it.each([
+    [6, ["word-1", "word-2"]],
+    [8, ["word-2"]],
+  ])(
+    "changes only the text after cursor offset %s",
+    async (offset, followingIds) => {
+      const words = ["Hello", "world", "again", "untouched"].map(
+        (text, index) => ({
+          id: `word-${index}`,
+          text,
+          start_ms: index * 100,
+          end_ms: (index + 1) * 100,
+          channel: 1,
+        }),
+      );
+      mocks.execute.mockResolvedValueOnce([
+        { words_json: JSON.stringify(words), speaker_hints_json: "[]" },
+      ]);
+      await splitTranscriptSpeaker({
+        transcriptId: "transcript-1",
+        segmentKey: { channel: "RemoteParty", speaker_index: 1 },
+        wordIds: ["word-0", "word-1", "word-2"],
+        text: "Hello world again",
+        offset,
+        humanId: "human-2",
+      });
+      const statement = mocks.executeTransaction.mock.calls[0]?.[0]?.[0];
+      const saved = JSON.parse(String(statement?.params[0]));
+      expect(saved.at(-1)).toEqual(words[3]);
+      expect(saved[0]).toEqual(words[0]);
+      const hints = JSON.parse(String(statement?.params[1]));
+      const assignment = JSON.parse(hints.at(-1).value);
+      expect(assignment).toMatchObject({
+        human_id: "human-2",
+        scope: "segment",
+        extend_to_adjacent: false,
+      });
+      expect(assignment.word_ids).toEqual(expect.arrayContaining(followingIds));
+      expect(assignment.word_ids).not.toContain("word-0");
+      if (offset === 8) {
+        expect(saved[1]).toMatchObject({
+          id: "word-1",
+          text: "wo",
+          start_ms: 100,
+          end_ms: 140,
+        });
+        expect(saved[2]).toMatchObject({
+          text: "rld",
+          start_ms: 140,
+          end_ms: 200,
+        });
+        expect(assignment.word_ids).toEqual([saved[2].id, "word-2"]);
+      }
+    },
+  );
+
+  it("ignores trailing whitespace when splitting inside the final word", async () => {
+    const words = ["Hello", "world", "again"].map((text, index) => ({
+      id: `word-${index}`,
+      text,
+      start_ms: index * 100,
+      end_ms: (index + 1) * 100,
+      channel: 1,
+    }));
+    mocks.execute.mockResolvedValueOnce([
+      { words_json: JSON.stringify(words), speaker_hints_json: "[]" },
+    ]);
+    await splitTranscriptSpeaker({
+      transcriptId: "transcript-1",
+      segmentKey: { channel: "RemoteParty", speaker_index: 1 },
+      wordIds: ["word-0", "word-1", "word-2"],
+      text: "Hello world again  ",
+      offset: 15,
+      humanId: "human-2",
+    });
+    const statement = mocks.executeTransaction.mock.calls[0]?.[0]?.[0];
+    const saved = JSON.parse(String(statement?.params[0]));
+    expect(saved[2]).toMatchObject({
+      id: "word-2",
+      text: "aga",
+      start_ms: 200,
+      end_ms: 260,
+    });
+    expect(saved[3]).toMatchObject({
+      text: "in",
+      start_ms: 260,
+      end_ms: 300,
+    });
+  });
+
+  it("re-checks the lock after the session query and stops before writing (Fix-Runde B3, Punkt 5)", async () => {
+    let locked = false;
+    mocks.execute.mockImplementationOnce(async () => {
+      locked = true;
+      return [{ id: "transcript-1" }];
+    });
+
+    await expect(
+      assignSessionTranscriptSpeaker({
+        sessionId: "session-1",
+        transcriptId: "transcript-1",
+        segmentKey: {
+          channel: "RemoteParty",
+          speaker_index: 0,
+          speaker_human_id: null,
+        },
+        humanId: "alice",
+        anchorWordId: "word-1",
+        assertEditable: () => {
+          if (locked) throw new Error("locked");
+        },
+      }),
+    ).rejects.toThrow("locked");
+    expect(mocks.executeTransaction).not.toHaveBeenCalled();
+  });
+
+  it("checks the lock again right before executeTransaction, after the SELECT (Fix-Runde B4, Punkt 5)", async () => {
+    mocks.execute.mockResolvedValueOnce(transcriptRow(threeWords()));
+    let calls = 0;
+    await expect(
+      updateTranscriptSegmentText({
+        transcriptId: "transcript-1",
+        wordIds: ["word-1"],
+        text: "zwei",
+        // 1st call: before the SELECT passes. 2nd: before the write refuses.
+        assertEditable: () => {
+          calls += 1;
+          if (calls >= 2) throw new Error("locked meanwhile");
+        },
+      }),
+    ).rejects.toThrow("locked meanwhile");
+    expect(calls).toBe(2);
+    expect(mocks.executeTransaction).not.toHaveBeenCalled();
+  });
+
+  it("splitTranscriptSpeaker reports whether any word matched (Fix-Runde B3, Punkt 6)", async () => {
+    const words = threeWords();
+    mocks.execute.mockResolvedValueOnce(transcriptRow(words));
+    await expect(
+      splitTranscriptSpeaker({
+        transcriptId: "transcript-1",
+        segmentKey: { channel: "RemoteParty", speaker_index: 1 },
+        wordIds: ["gone-1"],
+        text: "one two",
+        offset: 4,
+        humanId: "human-2",
+      }),
+    ).resolves.toBe(false);
+
+    mocks.execute.mockResolvedValueOnce(transcriptRow(words));
+    await expect(
+      splitTranscriptSpeaker({
+        transcriptId: "transcript-1",
+        segmentKey: { channel: "RemoteParty", speaker_index: 1 },
+        wordIds: ["word-0", "word-1"],
+        text: "one two",
+        offset: 4,
+        humanId: "human-2",
+      }),
+    ).resolves.toBe(true);
   });
 
   it("removes one human's assignments from every session transcript", async () => {

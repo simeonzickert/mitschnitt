@@ -72,3 +72,18 @@ export function resolveLiveLanguageSupportMode({
     ? useLiveOnDeviceModel && liveSupported
     : liveSupported;
 }
+
+// A provider picked in the dropdown without a default model is only
+// "pending". Once the saved selection is that same provider and has a model
+// (e.g. saved through its card), the pending state is stale and must go, or
+// the dropdown keeps showing the provider with an empty model.
+export function resolvePendingProvider<T extends string>(
+  pending: T | null,
+  savedProvider: string | undefined,
+  savedModel: string | undefined,
+): T | null {
+  if (pending && savedProvider === pending && savedModel) {
+    return null;
+  }
+  return pending;
+}

@@ -23,7 +23,9 @@ import { withEarlyValidationRetry } from "~/store/zustand/ai-task/shared/validat
 import { assertCanonicalTemplateSections } from "~/templates/codec";
 
 const AI_GENERATION_MAX_RETRIES = 4;
-const SUMMARY_MAX_OUTPUT_TOKENS = 8192;
+const ANTHROPIC_SUMMARY_MAX_OUTPUT_TOKENS = 64_000;
+const DEFAULT_SUMMARY_MAX_OUTPUT_TOKENS = 32_000;
+const APPLE_FOUNDATION_PROVIDER = "apple_foundation";
 const IMAGE_CONTEXT_NOTE =
   "Attached note images are included as visual context. Use visible text, diagrams, screenshots, and other image content when it materially improves the summary.";
 
@@ -37,6 +39,25 @@ export const enhanceWorkflow: Pick<
     smoothStream({ delayInMs: 250, chunking: "line" }),
   ],
 };
+
+// Anthropic requires max_tokens and the SDK clamps it to known model limits.
+// For every other remote or local-server provider an explicit cap is set:
+// OpenRouter checks the account balance against the model maximum when
+// max_tokens is missing, local OpenAI-compatible servers sometimes default to
+// very small limits, and a cap also bounds repetition loops of local models.
+// Apple Foundation is the on-device model with a 4096-token context, so it
+// gets no explicit value.
+export function getSummaryMaxOutputTokens(
+  provider: string,
+): number | undefined {
+  if (provider.startsWith("anthropic")) {
+    return ANTHROPIC_SUMMARY_MAX_OUTPUT_TOKENS;
+  }
+  if (provider === APPLE_FOUNDATION_PROVIDER) {
+    return undefined;
+  }
+  return DEFAULT_SUMMARY_MAX_OUTPUT_TOKENS;
+}
 
 async function* executeWorkflow(params: {
   model: LanguageModel;
@@ -168,7 +189,9 @@ IMPORTANT: Previous attempt failed. ${previousFeedback}`;
         ...createPromptInput(enhancedPrompt, args.imageContext),
         abortSignal: combinedController.signal,
         maxRetries: AI_GENERATION_MAX_RETRIES,
-        maxOutputTokens: SUMMARY_MAX_OUTPUT_TOKENS,
+        maxOutputTokens: getSummaryMaxOutputTokens(
+          typeof model === "string" ? "" : model.provider,
+        ),
       });
       return withCleanup(result.fullStream, () => {
         signal.removeEventListener("abort", abortFromOuter);

@@ -6,6 +6,7 @@ import { OnboardingButton } from "./shared";
 
 import { useAppleCalendarSelection } from "~/calendar/components/apple/calendar-selection";
 import { TroubleShootingLink } from "~/calendar/components/apple/permission";
+import { SystemAccountsHint } from "~/calendar/components/apple/system-accounts-hint";
 import {
   type CalendarGroup,
   CalendarSelection,
@@ -114,6 +115,8 @@ function CalendarSectionContent({ onContinue }: { onContinue: () => void }) {
           />
         )}
       </div>
+
+      {isMacos && <SystemAccountsHint />}
 
       {hasConnectedCalendar && (
         <OnboardingButton onClick={onContinue}>

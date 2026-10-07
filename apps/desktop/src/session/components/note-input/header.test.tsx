@@ -823,7 +823,7 @@ describe("Header", () => {
     );
   });
 
-  it("replaces the current enhanced note with auto generation", () => {
+  it("does not offer Auto when picking a template for the current note", () => {
     hoisted.userTemplates = [
       {
         id: "template-2",
@@ -852,13 +852,9 @@ describe("Header", () => {
     );
 
     fireEvent.click(screen.getByRole("button", { name: "Customer Call" }));
-    fireEvent.click(screen.getByRole("button", { name: "Auto" }));
-
-    expect(hoisted.enhance).toHaveBeenCalledWith("session-1", {
-      templateId: null,
-      targetNoteId: "note-1",
-      templateTitle: undefined,
-    });
+    // „Auto“ steht nicht mehr zur Wahl (Entscheid 06.10.2026).
+    expect(screen.queryByRole("button", { name: "Auto" })).toBeNull();
+    expect(hoisted.enhance).not.toHaveBeenCalled();
   });
 
   it("shows a spinner in the active enhanced tab while generating", () => {

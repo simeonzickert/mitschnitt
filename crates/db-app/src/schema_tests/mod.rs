@@ -84,36 +84,47 @@ const ENTFERNTE_VORLAGEN: [&str; 13] = [
     "mitschnitt-adaptive-minutes",
 ];
 
+/// Der Endbestand nach dem Schnitt vom 06.10.2026, abends (Step
+/// 20260912120000_vorlagen_drei; Runde 1 hatte noch vier): genau drei.
+const VORLAGEN_ENDBESTAND: [&str; 3] = [
+    "default-client-kickoff",
+    "default-lecture-notes",
+    "mitschnitt-kompakt",
+];
+
 /// Nach jeder Reparatur muss derselbe Bestand stehen wie nach einer normalen
-/// Migration: genau die sieben. Der Reparaturpfad spielt die Seeds nach UND
-/// den Aufraeum-Step dahinter (replay_template_seeds) -- ohne den zweiten
-/// Schritt braechte jede Reparatur die dreizehn entfernten Vorlagen zurueck.
+/// Migration: genau die drei. Der Reparaturpfad spielt die Seeds nach UND die
+/// Schnitt-Steps dahinter (replay_template_seeds) -- ohne sie braechte jede
+/// Reparatur die entfernten Vorlagen zurueck.
 async fn assert_vorlagenbestand_steht(db: &Db) {
     let ids = template_ids(db).await;
-    // Die Seed-Dateien bleiben die Quelle: der Aufraeum-Step darf nur die
-    // dreizehn treffen, alles andere aus den Seeds muss dastehen.
+    // Die Seed-Dateien bleiben die Quelle: von den 17 Upstream-Vorlagen darf
+    // nur stehen, was im Endbestand steht.
     let upstream = seed_template_ids(include_str!(
         "../../migrations/20260524000000_default_templates.sql"
     ));
     assert_eq!(upstream.len(), 17, "der Upstream-Seed traegt 17 Vorlagen");
     for id in &upstream {
-        let erwartet = VORLAGEN_NACH_AUFRAEUMEN.contains(&id.as_str());
+        let erwartet = VORLAGEN_ENDBESTAND.contains(&id.as_str());
         assert_eq!(
             ids.contains(id),
             erwartet,
             "Upstream-Vorlage {id}: erwartet vorhanden={erwartet}"
         );
     }
-    for id in ENTFERNTE_VORLAGEN {
+    for id in ENTFERNTE_VORLAGEN
+        .iter()
+        .chain(["mitschnitt-standard", "default-one-on-one-meeting"].iter())
+    {
         assert!(
             !ids.contains(&id.to_string()),
-            "Vorlage '{id}' ist nach dem Aufraeumen wieder da"
+            "Vorlage '{id}' ist nach dem Schnitt wieder da"
         );
     }
-    for id in VORLAGEN_NACH_AUFRAEUMEN {
+    for id in VORLAGEN_ENDBESTAND {
         assert!(ids.contains(&id.to_string()), "Vorlage '{id}' fehlt");
     }
-    assert_eq!(ids.len(), 7, "{ids:?}");
+    assert_eq!(ids.len(), 3, "{ids:?}");
 }
 
 /// Die gewaehlte Standard-Vorlage muss es geben. Zeigt `selected_template_id`
@@ -208,11 +219,14 @@ mod bitte_gegenpruefen;
 mod consent;
 mod disziplin_in_den_rahmen;
 mod entities;
+mod kalender_dubletten;
 mod migrations;
 mod mitschnitt_kompakt;
 mod mitschnitt_standard;
 mod search_index;
 mod transcript_live_deltas;
 mod voiceprints;
+mod vorlagen_drei;
+mod vorlagen_standard;
 mod vorlagen_aufraeumen;
 mod willkommen_titel;

@@ -278,6 +278,17 @@ async fn import_everything(
         tally.skipped += scan.audio_file_count;
     }
 
+    // Der Datenbankpfad schreibt Sitzungen mit ihren alten Termin- und
+    // Kalender-IDs zurueck, wenn die Quelle juenger ist. Zum Schluss (nach dem
+    // Ton) zeigen alle Sitzungen wieder auf lebende Ziele -- dieselbe Bereinigung
+    // wie die Migration. Aufraeumen ist Zugabe: scheitert es, bleibt der Import
+    // gueltig und der Lauf wird normal abgeschlossen.
+    if !dry_run
+        && let Err(error) = anlg_db_app::consolidate_calendar_duplicates(pool).await
+    {
+        tracing::warn!(%error, "Kalender-Bereinigung nach dem Import fehlgeschlagen");
+    }
+
     Ok(())
 }
 

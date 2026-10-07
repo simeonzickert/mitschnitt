@@ -4,7 +4,6 @@ import {
   BookOpenText,
   MagnifyingGlass,
   Plus,
-  Sparkle,
   X,
 } from "@phosphor-icons/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -22,9 +21,8 @@ import { cn } from "@anlg/utils";
 import { type WebTemplate } from "./codec";
 import { getTemplateCopyTitle, type UserTemplate } from "./queries";
 import { TemplateIconGlyph } from "./template-icon";
-import { AUTO_TEMPLATE_ID, useTemplateTab } from "./utils";
+import { useTemplateTab } from "./utils";
 
-import { useConfigValue } from "~/shared/config";
 import { useNativeContextMenu } from "~/shared/hooks/useNativeContextMenu";
 import { CustomSidebarHeader } from "~/sidebar/custom-sidebar-header";
 import { type Tab } from "~/store/zustand/tabs";
@@ -40,7 +38,6 @@ export function TemplatesSidebarContent({
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const [search, setSearch] = useState("");
   const [sortOption, setSortOption] = useState<SortOption>("alphabetical");
-  const autoPrompt = useConfigValue("auto_summary_prompt");
 
   const {
     userTemplates,
@@ -102,6 +99,12 @@ export function TemplatesSidebarContent({
         if (orderA !== orderB) {
           return orderA - orderB;
         }
+        // Gleichstand: der mitgelieferte Standard steht vor anderen angehefteten.
+        const standardA = a.id === "mitschnitt-kompakt" ? 0 : 1;
+        const standardB = b.id === "mitschnitt-kompakt" ? 0 : 1;
+        if (standardA !== standardB) {
+          return standardA - standardB;
+        }
         return (a.title || "").localeCompare(b.title || "");
       });
 
@@ -162,13 +165,6 @@ export function TemplatesSidebarContent({
   const combinedTemplates = useMemo<
     Array<
       | {
-          key: typeof AUTO_TEMPLATE_ID;
-          title: "Auto";
-          selected: boolean;
-          source: "auto";
-          customized: boolean;
-        }
-      | {
           key: string;
           title: string;
           selected: boolean;
@@ -187,20 +183,6 @@ export function TemplatesSidebarContent({
         }
     >
   >(() => {
-    const query = search.trim().toLowerCase();
-    const auto =
-      !query || "auto".includes(query)
-        ? [
-            {
-              key: AUTO_TEMPLATE_ID as typeof AUTO_TEMPLATE_ID,
-              title: "Auto" as const,
-              selected:
-                !isWebMode && effectiveSelectedMineId === AUTO_TEMPLATE_ID,
-              source: "auto" as const,
-              customized: Boolean(autoPrompt.trim()),
-            },
-          ]
-        : [];
     const mine = filteredMine.map((template) => ({
       key: template.id,
       title: template.title?.trim() || t`Untitled`,
@@ -220,9 +202,13 @@ export function TemplatesSidebarContent({
       template,
     }));
 
-    return [...auto, ...mine, ...web];
+    // „Auto“ steht nicht mehr in der Liste (Entscheid 06.10.2026); angeheftete
+    // Vorlagen („Standard“) stehen oben, der Rest dahinter.
+    const pinnedMine = mine.filter((item) => item.pinned);
+    const otherMine = mine.filter((item) => !item.pinned);
+
+    return [...pinnedMine, ...otherMine, ...web];
   }, [
-    autoPrompt,
     effectiveSelectedMineId,
     effectiveSelectedWebIndex,
     filteredMine,
@@ -238,9 +224,6 @@ export function TemplatesSidebarContent({
     (
       item:
         | {
-            source: "auto";
-          }
-        | {
             source: "user";
             template: UserTemplate;
           }
@@ -249,11 +232,6 @@ export function TemplatesSidebarContent({
             index: number;
           },
     ) => {
-      if (item.source === "auto") {
-        setSelectedMineId(AUTO_TEMPLATE_ID);
-        return;
-      }
-
       if (item.source === "user") {
         setSelectedMineId(item.template.id);
         return;
@@ -444,32 +422,7 @@ export function TemplatesSidebarContent({
             {hasResults && (
               <div className="pt-1">
                 {combinedTemplates.map((item) =>
-                  item.source === "auto" ? (
-                    <button
-                      key={item.key}
-                      type="button"
-                      onClick={() => setSelectedMineId(AUTO_TEMPLATE_ID)}
-                      data-template-selected={item.selected}
-                      className={cn([
-                        "w-full rounded-lg px-3 py-2 text-left text-sm transition-colors select-none",
-                        item.selected ? "bg-accent" : "hover:bg-accent/50",
-                      ])}
-                    >
-                      <div className="flex items-center gap-2">
-                        <Sparkle className="size-4 text-violet-500" />
-                        <div className="min-w-0 flex-1">
-                          <div className="truncate font-medium">
-                            <Trans>Auto</Trans>
-                          </div>
-                          {item.customized ? (
-                            <div className="text-muted-foreground truncate text-xs">
-                              <Trans>Customized</Trans>
-                            </div>
-                          ) : null}
-                        </div>
-                      </div>
-                    </button>
-                  ) : item.source === "user" ? (
+                  item.source === "user" ? (
                     <TemplateListItem
                       key={item.key}
                       template={item.template}

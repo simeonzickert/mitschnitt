@@ -1487,3 +1487,156 @@ fn ein_ordnerbestand_ohne_datenbank_wird_gefunden() {
 
     assert_eq!(treffer.len(), 1, "ein reiner Ordnerbestand ist ein Fund");
 }
+
+// --- Kalender: Sitzungen zeigen nach dem Import auf lebende Ziele ------------
+
+#[tokio::test]
+async fn kombinierter_import_laesst_sitzungen_auf_lebende_termine_und_kalender_zeigen() {
+    let quelle = tempfile::tempdir().unwrap();
+    let ziel_vault = tempfile::tempdir().unwrap();
+    let db_path = quelle_bauen_mit(quelle.path(), true).await;
+
+    // Ordnerbestand: derselbe Kalender und derselbe Termin wie beim Sync, mit
+    // den alten Import-IDs.
+    std::fs::write(
+        quelle.path().join("calendars.json"),
+        r##"{"alt-cal":{"tracking_id_calendar":"cal-A","name":"Privat","enabled":true,"provider":"apple","source":"iCloud","color":"#111111","connection_id":"conn-1"}}"##,
+    )
+    .unwrap();
+    std::fs::write(
+        quelle.path().join("events.json"),
+        r#"{"alt-ev":{"tracking_id_event":"ev-1","calendar_id":"alt-cal","title":"Termin","started_at":"2026-10-07T09:00:00Z","provider":"apple"}}"#,
+    )
+    .unwrap();
+
+    // Datenbankbestand: die Sitzung ist juenger als alles im Ziel und traegt die
+    // alten IDs -- der allgemeine Upsert schreibt sie so zurueck.
+    let db = Db::connect_local_plain(&db_path).await.unwrap();
+    sqlx::query(
+        "UPDATE sessions SET event_id = 'alt-ev', event_json = '{\"calendar_id\":\"alt-cal\"}', \
+         updated_at = '2026-10-01T10:00:00.000Z' WHERE id = ?",
+    )
+    .bind(ERFUNDENE_SITZUNG)
+    .execute(db.pool())
+    .await
+    .unwrap();
+    db.pool().close().await;
+
+    let ziel = ziel_datenbank(ziel_vault.path()).await;
+    sqlx::query(
+        "INSERT INTO calendars (id, tracking_id_calendar, name, enabled, provider, connection_id) \
+         VALUES ('sync-cal', 'cal-A', 'Privat', 1, 'apple', 'conn-1')",
+    )
+    .execute(ziel.pool())
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO events (id, tracking_id_event, calendar_id, title, started_at, provider) \
+         VALUES ('sync-ev', 'ev-1', 'sync-cal', 'Termin', '2026-10-07T09:00:00Z', 'apple')",
+    )
+    .execute(ziel.pool())
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO sessions (id, workspace_id, owner_user_id, title, event_id, updated_at) \
+         VALUES (?, 'eigener-bereich', 'eigener-bereich', 'Alt', 'sync-ev', '2026-01-01T10:00:00.000Z')",
+    )
+    .bind(ERFUNDENE_SITZUNG)
+    .execute(ziel.pool())
+    .await
+    .unwrap();
+
+    let pruefen = |pool: SqlitePool| async move {
+        sqlx::query_as::<_, (String, String)>(
+            "SELECT s.event_id, json_extract(s.event_json, '$.calendar_id') FROM sessions s \
+             JOIN events e ON e.id = s.event_id AND e.deleted_at IS NULL \
+             JOIN calendars c ON c.id = e.calendar_id AND c.deleted_at IS NULL \
+             WHERE s.id = ?",
+        )
+        .bind(ERFUNDENE_SITZUNG)
+        .fetch_optional(&pool)
+        .await
+        .unwrap()
+    };
+
+    run_source_import(ziel.pool(), quelle.path(), ziel_vault.path(), false, false)
+        .await
+        .unwrap();
+    let nach_lauf_1 = pruefen(ziel.pool().clone()).await;
+    assert_eq!(
+        nach_lauf_1,
+        Some(("sync-ev".to_string(), "sync-cal".to_string())),
+        "die Sitzung zeigt auf einen lebenden Termin am lebenden Kalender"
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM calendars WHERE deleted_at IS NULL")
+            .fetch_one(ziel.pool())
+            .await
+            .unwrap(),
+        1
+    );
+
+    run_source_import(ziel.pool(), quelle.path(), ziel_vault.path(), false, false)
+        .await
+        .unwrap();
+    assert_eq!(pruefen(ziel.pool().clone()).await, nach_lauf_1, "zweiter Lauf aendert nichts");
+}
+
+#[tokio::test]
+async fn zurueckgeschriebene_quell_termine_wandern_vom_kalender_grabstein_auf_den_lebenden() {
+    let quelle = tempfile::tempdir().unwrap();
+    let ziel_vault = tempfile::tempdir().unwrap();
+    let db_path = quelle_bauen_mit(quelle.path(), true).await;
+    std::fs::write(
+        quelle.path().join("calendars.json"),
+        r##"{"alt-cal":{"tracking_id_calendar":"cal-A","name":"Privat","enabled":true,"provider":"apple","source":"iCloud","color":"#111111","connection_id":"conn-1"}}"##,
+    )
+    .unwrap();
+
+    // Die Quell-Datenbank traegt einen Termin am alten Kalender und eine Sitzung darauf.
+    let db = Db::connect_local_plain(&db_path).await.unwrap();
+    sqlx::query(
+        "INSERT INTO events (id, tracking_id_event, calendar_id, title, started_at, provider, updated_at) \
+         VALUES ('alt-ev2', 'ev-2', 'alt-cal', 'Neuer Termin', '2026-10-09T09:00:00Z', 'apple', '2026-10-01T10:00:00.000Z')",
+    )
+    .execute(db.pool())
+    .await
+    .unwrap();
+    sqlx::query(
+        "UPDATE sessions SET event_id = 'alt-ev2', event_json = '{\"calendar_id\":\"alt-cal\"}', \
+         updated_at = '2026-10-01T10:00:00.000Z' WHERE id = ?",
+    )
+    .bind(ERFUNDENE_SITZUNG)
+    .execute(db.pool())
+    .await
+    .unwrap();
+    db.pool().close().await;
+
+    let ziel = ziel_datenbank(ziel_vault.path()).await;
+    sqlx::query(
+        "INSERT INTO calendars (id, tracking_id_calendar, name, enabled, provider, connection_id) \
+         VALUES ('sync-cal', 'cal-A', 'Privat', 1, 'apple', 'conn-1')",
+    )
+    .execute(ziel.pool())
+    .await
+    .unwrap();
+
+    run_source_import(ziel.pool(), quelle.path(), ziel_vault.path(), false, false)
+        .await
+        .unwrap();
+
+    let stand: Option<(String, String, String)> = sqlx::query_as(
+        "SELECT e.id, e.calendar_id, json_extract(s.event_json, '$.calendar_id') FROM sessions s \
+         JOIN events e ON e.id = s.event_id AND e.deleted_at IS NULL \
+         JOIN calendars c ON c.id = e.calendar_id AND c.deleted_at IS NULL \
+         WHERE s.id = ?",
+    )
+    .bind(ERFUNDENE_SITZUNG)
+    .fetch_optional(ziel.pool())
+    .await
+    .unwrap();
+    assert_eq!(
+        stand,
+        Some(("alt-ev2".to_string(), "sync-cal".to_string(), "sync-cal".to_string()))
+    );
+}

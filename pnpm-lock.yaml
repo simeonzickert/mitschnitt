@@ -5,10 +5,11 @@ settings:
   excludeLinksFromLockfile: false
 
 overrides:
-  prosemirror-view: 1.41.7
+  prosemirror-view: 1.42.3
+  prosemirror-model: 1.25.12
   lightningcss: 1.30.1
   protobufjs: 7.6.5
-  seroval: 1.5.3
+  seroval: 1.6.3
   '@xhmikosr/decompress': 10.2.1
 
 importers:
@@ -194,7 +195,7 @@ importers:
         version: 0.27.19(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
       '@handlewithcare/react-prosemirror':
         specifier: ^3.2.6
-        version: 3.2.6(prosemirror-model@1.25.4)(prosemirror-state@1.4.4)(prosemirror-view@1.41.7)(react-dom@19.2.5(react@19.2.5))(react-reconciler@0.33.0(react@19.2.5))(react@19.2.5)
+        version: 3.2.6(prosemirror-model@1.25.12)(prosemirror-state@1.4.4)(prosemirror-view@1.42.3)(react-dom@19.2.5(react@19.2.5))(react-reconciler@0.33.0(react@19.2.5))(react@19.2.5)
       '@iconify-icon/react':
         specifier: ^3.0.3
         version: 3.0.3(react@19.2.5)
@@ -283,11 +284,11 @@ importers:
         specifier: ^0.6.3
         version: 0.6.3
       prosemirror-model:
-        specifier: ^1.25.4
-        version: 1.25.4
+        specifier: 1.25.12
+        version: 1.25.12
       prosemirror-view:
-        specifier: 1.41.7
-        version: 1.41.7
+        specifier: 1.42.3
+        version: 1.42.3
       react:
         specifier: ^19.2.5
         version: 19.2.5
@@ -384,7 +385,7 @@ importers:
         version: 8.5.26
       react-scan:
         specifier: ^0.5.7
-        version: 0.5.7(@opentelemetry/core@2.10.0(@opentelemetry/api@1.9.1))(esbuild@0.27.7)(eslint@9.39.5(jiti@2.7.0))(react-dom@19.2.5(react@19.2.5))(react@19.2.5)(rolldown@1.0.0-rc.15)(vite@8.0.8(@types/node@24.12.2)(esbuild@0.27.7)(jiti@2.7.0)(terser@5.51.2)(tsx@4.21.0)(yaml@2.9.0))
+        version: 0.5.7(@opentelemetry/core@2.10.0(@opentelemetry/api@1.9.1))(esbuild@0.27.7)(eslint@9.39.5(jiti@2.7.0))(oxlint-tsgolint@0.21.1)(react-dom@19.2.5(react@19.2.5))(react@19.2.5)(rolldown@1.0.0-rc.15)(vite@8.0.8(@types/node@24.12.2)(esbuild@0.27.7)(jiti@2.7.0)(terser@5.51.2)(tsx@4.21.0)(yaml@2.9.0))
       tailwindcss:
         specifier: ^4.2.2
         version: 4.2.2
@@ -501,7 +502,7 @@ importers:
         version: 1.7.6
       '@handlewithcare/react-prosemirror':
         specifier: ^3.2.6
-        version: 3.2.6(prosemirror-model@1.25.4)(prosemirror-state@1.4.4)(prosemirror-view@1.41.7)(react-dom@19.2.5(react@19.2.5))(react-reconciler@0.33.0(react@19.2.5))(react@19.2.5)
+        version: 3.2.6(prosemirror-model@1.25.12)(prosemirror-state@1.4.4)(prosemirror-view@1.42.3)(react-dom@19.2.5(react@19.2.5))(react-reconciler@0.33.0(react@19.2.5))(react@19.2.5)
       '@phosphor-icons/react':
         specifier: ^2.1.10
         version: 2.1.10(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
@@ -533,8 +534,8 @@ importers:
         specifier: ^1.13.4
         version: 1.13.4
       prosemirror-model:
-        specifier: ^1.25.4
-        version: 1.25.4
+        specifier: 1.25.12
+        version: 1.25.12
       prosemirror-schema-list:
         specifier: ^1.5.1
         version: 1.5.1
@@ -544,9 +545,12 @@ importers:
       prosemirror-state:
         specifier: ^1.4.4
         version: 1.4.4
+      prosemirror-transform:
+        specifier: ^1.12.0
+        version: 1.12.0
       prosemirror-view:
-        specifier: 1.41.7
-        version: 1.41.7
+        specifier: 1.42.3
+        version: 1.42.3
       react:
         specifier: ^19.2.3
         version: 19.2.5
@@ -2045,9 +2049,9 @@ packages:
       '@tiptap/core': ^3.0.0
       '@tiptap/pm': ^3.0.0
       '@tiptap/react': ^3.0.0
-      prosemirror-model: ^1.0.0
+      prosemirror-model: 1.25.12
       prosemirror-state: ^1.0.0
-      prosemirror-view: 1.41.7
+      prosemirror-view: 1.42.3
       react: '>=17 <20'
       react-dom: '>=17 <20'
       react-reconciler: '>=0.26.1 <=0.33.0'
@@ -6976,8 +6980,8 @@ packages:
     engines: {node: ^20.19.0 || >=22.12.0}
     hasBin: true
 
-  oxlint-plugin-react-doctor@0.9.14:
-    resolution: {integrity: sha512-YGdwFmQXGQulT63SnVD9JI1hV2EwGnZHrgSlUMQaOkvnhYA200QwDeb7DfVT8UBt34lBvbkjtz8VRFJugHjsRQ==}
+  oxlint-plugin-react-doctor@0.9.17:
+    resolution: {integrity: sha512-j6tdFoJbLztISYNlw7LMT+6naqhVsXTNn7drhoGRIqf0x2mCSD2Ur71hK0E/VrLens355finI6j+sMqHxHpEfA==}
     engines: {node: ^20.19.0 || >=22.13.0}
 
   oxlint-tsgolint@0.21.1:
@@ -7152,8 +7156,8 @@ packages:
   prosemirror-markdown@1.13.4:
     resolution: {integrity: sha512-D98dm4cQ3Hs6EmjK500TdAOew4Z03EV71ajEFiWra3Upr7diytJsjF4mPV2dW+eK5uNectiRj0xFxYI9NLXDbw==}
 
-  prosemirror-model@1.25.4:
-    resolution: {integrity: sha512-PIM7E43PBxKce8OQeezAs9j4TP+5yDpZVbuurd1h5phUxEKIu+G2a+EUZzIC5nS1mJktDJWzbqS23n1tsAf5QA==}
+  prosemirror-model@1.25.12:
+    resolution: {integrity: sha512-Ue2gTmXMa7EhpLNhC7J+h4+ykD8ha12K6rrZFFKKJHBForfIStw5gJ6Zrf1mqqAa9NmpmEB4wp9bKmA4eUVjWg==}
 
   prosemirror-schema-list@1.5.1:
     resolution: {integrity: sha512-927lFx/uwyQaGwJxLWCZRkjXG0p48KpMj6ueoYiu4JX05GGuGcgzAy62dfiV8eFZftgyBUvLx76RsMe20fJl+Q==}
@@ -7167,8 +7171,8 @@ packages:
   prosemirror-transform@1.12.0:
     resolution: {integrity: sha512-GxboyN4AMIsoHNtz5uf2r2Ru551i5hWeCMD6E2Ib4Eogqoub0NflniaBPVQ4MrGE5yZ8JV9tUHg9qcZTTrcN4w==}
 
-  prosemirror-view@1.41.7:
-    resolution: {integrity: sha512-jUwKNCEIGiqdvhlS91/2QAg21e4dfU5bH2iwmSDQeosXJgKF7smG0YSplOWK0cjSNgIqXe7VXqo7EIfUFJdt3w==}
+  prosemirror-view@1.42.3:
+    resolution: {integrity: sha512-oTN7EtH+CpwxU9NrwEYWd0UZ4JUx7l048l5A2Xppm4p/60isZYLnth9QVQmC3VRIvdrIWCxwZSd+Uz791G31/w==}
 
   pseudolocale@2.2.0:
     resolution: {integrity: sha512-O+D2eU7fO9wVLqrohvt9V/9fwMadnJQ4jxwiK+LeNEqhMx8JYx4xQHkArDCJFAdPPOp/pQq6z5L37eBvAoc8jw==}
@@ -7280,8 +7284,8 @@ packages:
       react: '>=16.8.0'
       react-dom: '>=16.8.0'
 
-  react-doctor@0.9.14:
-    resolution: {integrity: sha512-JzOwAY/hoSxHa4Siyqgfxr/KCNak0SB9pSTseFVStFHAnWS+XxR6RsWU6Q5Ho+J5Jmyb9LZRXc6ZK5jt3cfcQQ==}
+  react-doctor@0.9.17:
+    resolution: {integrity: sha512-YCsjYk6MocO/oBhVxCcKvPotFxEOf/WJep/oF7jrpyVUBVKDKdpt7jVwTxrJrFE8uALMmVTljzXNTIjoL3talg==}
     engines: {node: ^20.19.0 || >=22.13.0}
     hasBin: true
 
@@ -7617,10 +7621,10 @@ packages:
     resolution: {integrity: sha512-qpY0Cl+fKYFn4GOf3cMiq6l72CpuVaawb6ILjubOQ+diJ54LfOWaSSPsaswN8DRPIPW4Yq+tE1k5aKd7ILyaFg==}
     engines: {node: '>=10'}
     peerDependencies:
-      seroval: 1.5.3
+      seroval: 1.6.3
 
-  seroval@1.5.3:
-    resolution: {integrity: sha512-BXe0x4buEeYiIKaRUnth1WqCILQ3k4O67KP/B4pC3pVz0Mv2c96ngA9QDREUYxWY1sb2RZVRqwI9RcpVMyHCVw==}
+  seroval@1.6.3:
+    resolution: {integrity: sha512-5PwLbVPpT4DEki1hYVSSsoxWY6xCNMVucAVLK/CH0mXSDfp/I4KaAex72q80GNt5hpn7CCMGdSpIg4YGqH/wXQ==}
     engines: {node: '>=10'}
 
   set-value@2.0.1:
@@ -9378,12 +9382,12 @@ snapshots:
       react: 19.2.5
       react-dom: 19.2.5(react@19.2.5)
 
-  '@handlewithcare/react-prosemirror@3.2.6(prosemirror-model@1.25.4)(prosemirror-state@1.4.4)(prosemirror-view@1.41.7)(react-dom@19.2.5(react@19.2.5))(react-reconciler@0.33.0(react@19.2.5))(react@19.2.5)':
+  '@handlewithcare/react-prosemirror@3.2.6(prosemirror-model@1.25.12)(prosemirror-state@1.4.4)(prosemirror-view@1.42.3)(react-dom@19.2.5(react@19.2.5))(react-reconciler@0.33.0(react@19.2.5))(react@19.2.5)':
     dependencies:
       classnames: 2.5.1
-      prosemirror-model: 1.25.4
+      prosemirror-model: 1.25.12
       prosemirror-state: 1.4.4
-      prosemirror-view: 1.41.7
+      prosemirror-view: 1.42.3
       react: 19.2.5
       react-dom: 19.2.5(react@19.2.5)
       react-reconciler: 0.33.0(react@19.2.5)
@@ -11551,8 +11555,8 @@ snapshots:
     dependencies:
       '@tanstack/history': 1.161.6
       cookie-es: 3.1.1
-      seroval: 1.5.3
-      seroval-plugins: 1.5.2(seroval@1.5.3)
+      seroval: 1.6.3
+      seroval-plugins: 1.5.2(seroval@1.6.3)
 
   '@tanstack/router-devtools-core@1.167.3(@tanstack/router-core@1.168.14)(csstype@3.2.3)':
     dependencies:
@@ -14717,7 +14721,7 @@ snapshots:
       '@oxfmt/binding-win32-ia32-msvc': 0.45.0
       '@oxfmt/binding-win32-x64-msvc': 0.45.0
 
-  oxlint-plugin-react-doctor@0.9.14:
+  oxlint-plugin-react-doctor@0.9.17:
     dependencies:
       '@shaderfrog/glsl-parser': 7.0.1
       '@typescript-eslint/types': 8.67.0
@@ -14758,7 +14762,7 @@ snapshots:
       '@oxlint/binding-win32-x64-msvc': 1.60.0
       oxlint-tsgolint: 0.21.1
 
-  oxlint@1.81.0:
+  oxlint@1.81.0(oxlint-tsgolint@0.21.1):
     optionalDependencies:
       '@oxlint/binding-android-arm-eabi': 1.81.0
       '@oxlint/binding-android-arm64': 1.81.0
@@ -14779,6 +14783,7 @@ snapshots:
       '@oxlint/binding-win32-arm64-msvc': 1.81.0
       '@oxlint/binding-win32-ia32-msvc': 1.81.0
       '@oxlint/binding-win32-x64-msvc': 1.81.0
+      oxlint-tsgolint: 0.21.1
 
   p-limit@3.1.0:
     dependencies:
@@ -14916,7 +14921,7 @@ snapshots:
 
   prosemirror-commands@1.7.1:
     dependencies:
-      prosemirror-model: 1.25.4
+      prosemirror-model: 1.25.12
       prosemirror-state: 1.4.4
       prosemirror-transform: 1.12.0
 
@@ -14924,20 +14929,20 @@ snapshots:
     dependencies:
       prosemirror-state: 1.4.4
       prosemirror-transform: 1.12.0
-      prosemirror-view: 1.41.7
+      prosemirror-view: 1.42.3
 
   prosemirror-gapcursor@1.4.0:
     dependencies:
       prosemirror-keymap: 1.2.3
-      prosemirror-model: 1.25.4
+      prosemirror-model: 1.25.12
       prosemirror-state: 1.4.4
-      prosemirror-view: 1.41.7
+      prosemirror-view: 1.42.3
 
   prosemirror-history@1.5.0:
     dependencies:
       prosemirror-state: 1.4.4
       prosemirror-transform: 1.12.0
-      prosemirror-view: 1.41.7
+      prosemirror-view: 1.42.3
       rope-sequence: 1.3.4
 
   prosemirror-inputrules@1.5.1:
@@ -14954,37 +14959,37 @@ snapshots:
     dependencies:
       '@types/markdown-it': 14.1.2
       markdown-it: 14.2.0
-      prosemirror-model: 1.25.4
+      prosemirror-model: 1.25.12
 
-  prosemirror-model@1.25.4:
+  prosemirror-model@1.25.12:
     dependencies:
       orderedmap: 2.1.1
 
   prosemirror-schema-list@1.5.1:
     dependencies:
-      prosemirror-model: 1.25.4
+      prosemirror-model: 1.25.12
       prosemirror-state: 1.4.4
       prosemirror-transform: 1.12.0
 
   prosemirror-search@1.1.0:
     dependencies:
-      prosemirror-model: 1.25.4
+      prosemirror-model: 1.25.12
       prosemirror-state: 1.4.4
-      prosemirror-view: 1.41.7
+      prosemirror-view: 1.42.3
 
   prosemirror-state@1.4.4:
     dependencies:
-      prosemirror-model: 1.25.4
+      prosemirror-model: 1.25.12
       prosemirror-transform: 1.12.0
-      prosemirror-view: 1.41.7
+      prosemirror-view: 1.42.3
 
   prosemirror-transform@1.12.0:
     dependencies:
-      prosemirror-model: 1.25.4
+      prosemirror-model: 1.25.12
 
-  prosemirror-view@1.41.7:
+  prosemirror-view@1.42.3:
     dependencies:
-      prosemirror-model: 1.25.4
+      prosemirror-model: 1.25.12
       prosemirror-state: 1.4.4
       prosemirror-transform: 1.12.0
 
@@ -15123,7 +15128,7 @@ snapshots:
       react: 19.2.5
       react-dom: 19.2.5(react@19.2.5)
 
-  react-doctor@0.9.14(@opentelemetry/core@2.10.0(@opentelemetry/api@1.9.1))(eslint@9.39.5(jiti@2.7.0))(react@19.2.5):
+  react-doctor@0.9.17(@opentelemetry/core@2.10.0(@opentelemetry/api@1.9.1))(eslint@9.39.5(jiti@2.7.0))(oxlint-tsgolint@0.21.1)(react@19.2.5):
     dependencies:
       '@astrojs/compiler': 4.0.0
       '@sentry/node': 10.70.0(@opentelemetry/core@2.10.0(@opentelemetry/api@1.9.1))
@@ -15137,8 +15142,8 @@ snapshots:
       magicast: 0.5.4
       oxc-parser: 0.148.0
       oxc-resolver: 11.24.2
-      oxlint: 1.81.0
-      oxlint-plugin-react-doctor: 0.9.14
+      oxlint: 1.81.0(oxlint-tsgolint@0.21.1)
+      oxlint-plugin-react-doctor: 0.9.17
       playwright-core: 1.63.0
       prompts: 2.4.2
       typescript: 5.8.3
@@ -15272,7 +15277,7 @@ snapshots:
       react-draggable: 4.7.1(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
       tslib: 2.6.2
 
-  react-scan@0.5.7(@opentelemetry/core@2.10.0(@opentelemetry/api@1.9.1))(esbuild@0.27.7)(eslint@9.39.5(jiti@2.7.0))(react-dom@19.2.5(react@19.2.5))(react@19.2.5)(rolldown@1.0.0-rc.15)(vite@8.0.8(@types/node@24.12.2)(esbuild@0.27.7)(jiti@2.7.0)(terser@5.51.2)(tsx@4.21.0)(yaml@2.9.0)):
+  react-scan@0.5.7(@opentelemetry/core@2.10.0(@opentelemetry/api@1.9.1))(esbuild@0.27.7)(eslint@9.39.5(jiti@2.7.0))(oxlint-tsgolint@0.21.1)(react-dom@19.2.5(react@19.2.5))(react@19.2.5)(rolldown@1.0.0-rc.15)(vite@8.0.8(@types/node@24.12.2)(esbuild@0.27.7)(jiti@2.7.0)(terser@5.51.2)(tsx@4.21.0)(yaml@2.9.0)):
     dependencies:
       '@babel/core': 7.29.0
       '@babel/types': 7.29.0
@@ -15284,7 +15289,7 @@ snapshots:
       preact: 10.29.1
       prompts: 2.4.2
       react: 19.2.5
-      react-doctor: 0.9.14(@opentelemetry/core@2.10.0(@opentelemetry/api@1.9.1))(eslint@9.39.5(jiti@2.7.0))(react@19.2.5)
+      react-doctor: 0.9.17(@opentelemetry/core@2.10.0(@opentelemetry/api@1.9.1))(eslint@9.39.5(jiti@2.7.0))(oxlint-tsgolint@0.21.1)(react@19.2.5)
       react-dom: 19.2.5(react@19.2.5)
       react-grab: 0.2.0(react@19.2.5)
     optionalDependencies:
@@ -15590,11 +15595,11 @@ snapshots:
 
   semver@7.8.5: {}
 
-  seroval-plugins@1.5.2(seroval@1.5.3):
+  seroval-plugins@1.5.2(seroval@1.6.3):
     dependencies:
-      seroval: 1.5.3
+      seroval: 1.6.3
 
-  seroval@1.5.3: {}
+  seroval@1.6.3: {}
 
   set-value@2.0.1:
     dependencies:

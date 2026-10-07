@@ -25,7 +25,13 @@ def _baue_fake_minisign_pubkey(key_id_hex):
     key_id_bytes = bytes.fromhex(key_id_hex)[::-1]  # 8 Bytes in little-endian
     # Algorithmus 2 Bytes + Key-ID 8 Bytes + Key 32 Bytes (dummy)
     raw = b"Ed" + key_id_bytes + b"\x00" * 32
-    text = "untrusted comment: minisign public key " + key_id_hex + "\n" + base64.b64encode(raw).decode("ascii") + "\n"
+    text = (
+        "untrusted comment: minisign public key "
+        + key_id_hex
+        + "\n"
+        + base64.b64encode(raw).decode("ascii")
+        + "\n"
+    )
     return base64.b64encode(text.encode("utf-8")).decode("ascii")
 
 
@@ -41,9 +47,11 @@ def _baue_fake_minisign_signatur(key_id_hex):
     # Textdatei: 4 Zeilen
     text = (
         "untrusted comment: fake signature\n"
-        + sig_line + "\n"
+        + sig_line
+        + "\n"
         + "trusted comment: fake\n"
-        + base64.b64encode(b"\x00" * 64).decode("ascii") + "\n"
+        + base64.b64encode(b"\x00" * 64).decode("ascii")
+        + "\n"
     )
     return base64.b64encode(text.encode("utf-8")).decode("ascii")
 
@@ -70,9 +78,7 @@ class TestMitschnittFeed(unittest.TestCase):
                 msg=f"Erwarteter Fehler, aber Erfolg: {result.stdout}",
             )
         else:
-            self.assertEqual(
-                result.returncode, 0, msg=f"Fehler: {result.stderr}"
-            )
+            self.assertEqual(result.returncode, 0, msg=f"Fehler: {result.stderr}")
         return result
 
     def _run_zusammenfuehren(self, args_list, expect_failure=False):
@@ -85,9 +91,7 @@ class TestMitschnittFeed(unittest.TestCase):
                 msg=f"Erwarteter Fehler, aber Erfolg: {result.stdout}",
             )
         else:
-            self.assertEqual(
-                result.returncode, 0, msg=f"Fehler: {result.stderr}"
-            )
+            self.assertEqual(result.returncode, 0, msg=f"Fehler: {result.stderr}")
         return result
 
     def _create_asset_file(self, name, content=b"dummy"):
@@ -502,9 +506,7 @@ class TestMitschnittFeed(unittest.TestCase):
             "darwin-aarch64", notes="neu", pub_date="2026-09-28T18:00:00Z"
         )
         # Pruefen, dass nur eine Datei existiert und die neuen Daten enthaelt
-        baustein_datei = os.path.join(
-            self.ausgabe, "plattform-darwin-aarch64.json"
-        )
+        baustein_datei = os.path.join(self.ausgabe, "plattform-darwin-aarch64.json")
         with open(baustein_datei, "r") as f:
             data = json.load(f)
         self.assertEqual(data["notes"], "neu")

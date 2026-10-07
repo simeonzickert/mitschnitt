@@ -31,6 +31,10 @@ import {
   getTranscriptRecord,
   type TranscriptRecord,
 } from "~/stt/queries";
+import {
+  buildRenderTranscriptRequestFromRows,
+  resolveScopedWordHumanIds,
+} from "~/stt/render-transcript";
 import type { SpeakerHintWithId, WordWithId } from "~/stt/types";
 
 type RunOptions = {
@@ -97,6 +101,7 @@ export const STOPPED_TRANSCRIPTION_ERROR_MESSAGE = "Transcription stopped.";
 export const EMPTY_CURRENT_CAPTURE_TRANSCRIPT_ERROR_MESSAGE =
   "Batch transcription did not include the current recording.";
 const MIN_REFINED_SPEAKER_OVERLAP_RATIO = 0.6;
+const MIN_REFINED_ASSIGNMENT_COVERAGE_RATIO = 0.8;
 const LOCAL_SONIQO_BATCH_TARGET = {
   provider: "soniqo",
   model: "soniqo-parakeet-batch",
@@ -104,6 +109,10 @@ const LOCAL_SONIQO_BATCH_TARGET = {
   apiKey: "",
   label: "Soniqo batch transcription",
 } satisfies BatchTarget;
+
+const REFINED_SOURCE_RETRY_DELAY_MS = 300;
+const UNREADABLE_REFINED_SOURCE_ERROR_MESSAGE =
+  "The live transcript cannot be read right now, so the refinement was not started.";
 
 export function getBatchProvider(
   provider: string,
@@ -289,7 +298,7 @@ export function reconcileRefinedSpeakerClusters(
   const sourceSpeakerKeys = speakerKeysByWordId(source.speakerHints);
   const targetSpeakerKeys = speakerKeysByWordId(hints);
   if (sourceSpeakerKeys.size === 0 || targetSpeakerKeys.size === 0) {
-    return hints;
+    return reconcileRefinedSpeakerAssignments(source, words, hints);
   }
 
   const sourceIntervalsByChannel = new Map<
@@ -459,7 +468,7 @@ export function reconcileRefinedSpeakerClusters(
     sourceSpeakerByTarget.set(speakerKey, speakerIndex);
   }
 
-  return hints.map((hint) => {
+  const reconciledProviderHints = hints.map((hint) => {
     if (hint.type !== "provider_speaker_index" || !hint.word_id) {
       return hint;
     }
@@ -478,6 +487,119 @@ export function reconcileRefinedSpeakerClusters(
       value: JSON.stringify({ ...value, speaker_index: speakerIndex }),
     };
   });
+
+  return reconcileRefinedSpeakerAssignments(
+    source,
+    words,
+    reconciledProviderHints,
+  );
+}
+
+function reconcileRefinedSpeakerAssignments(
+  source: TranscriptRecord,
+  words: WordWithId[],
+  hints: SpeakerHintWithId[],
+): SpeakerHintWithId[] {
+  if (
+    !source.speakerHints.some((hint) => hint.type === "user_speaker_assignment")
+  )
+    return hints;
+  const previous = buildRenderTranscriptRequestFromRows([
+    {
+      words: source.words,
+      speaker_hints: source.speakerHints.filter(
+        (hint) => hint.type !== "automatic_speaker_assignment",
+      ),
+    },
+  ])?.transcripts[0];
+  const next = buildRenderTranscriptRequestFromRows([
+    { words, speaker_hints: hints },
+  ])?.transcripts[0];
+  if (!previous || !next) return hints;
+
+  const previousHumans = resolveScopedWordHumanIds(previous);
+  const nextHumans = resolveScopedWordHumanIds(next);
+  const channels = new Set(next.words.map((word) => word.channel));
+  const wordIdsByHuman = new Map<string, string[]>();
+  const hasTiming = (word: { start_ms: number; end_ms: number }) =>
+    Number.isFinite(word.start_ms) &&
+    Number.isFinite(word.end_ms) &&
+    word.end_ms > word.start_ms;
+
+  for (const channel of channels) {
+    const candidates = previous.words
+      .filter(
+        (word) =>
+          hasTiming(word) &&
+          (word.channel === channel ||
+            (channel === 2 &&
+              (word.channel === 0 || word.channel === 1) &&
+              !channels.has(word.channel))),
+      )
+      .sort((a, b) => a.start_ms - b.start_ms);
+    const targets = next.words
+      .filter((word) => word.channel === channel && hasTiming(word))
+      .sort((a, b) => a.start_ms - b.start_ms);
+    let cursor = 0;
+    let active: typeof candidates = [];
+
+    for (const word of targets) {
+      if (nextHumans.has(word.id)) continue;
+      while (
+        cursor < candidates.length &&
+        candidates[cursor].start_ms < word.end_ms
+      ) {
+        active.push(candidates[cursor++]);
+      }
+      active = active.filter((candidate) => candidate.end_ms > word.start_ms);
+      let humanId: string | undefined;
+      let coveredMs = 0;
+      let coveredUntil = word.start_ms;
+      let ambiguous = false;
+
+      for (const candidate of active) {
+        const start = Math.max(word.start_ms, candidate.start_ms);
+        const end = Math.min(word.end_ms, candidate.end_ms);
+        if (end <= start) continue;
+        const candidateHuman = previousHumans.get(candidate.id);
+        if (!candidateHuman || (humanId && candidateHuman !== humanId)) {
+          ambiguous = true;
+          break;
+        }
+        humanId = candidateHuman;
+        coveredMs += Math.max(0, end - Math.max(start, coveredUntil));
+        coveredUntil = Math.max(coveredUntil, end);
+      }
+
+      if (
+        ambiguous ||
+        !humanId ||
+        coveredMs / (word.end_ms - word.start_ms) <
+          MIN_REFINED_ASSIGNMENT_COVERAGE_RATIO
+      )
+        continue;
+      const wordIds = wordIdsByHuman.get(humanId) ?? [];
+      wordIds.push(word.id);
+      wordIdsByHuman.set(humanId, wordIds);
+    }
+  }
+
+  return [
+    ...hints,
+    ...[...wordIdsByHuman].map(
+      ([humanId, wordIds]): SpeakerHintWithId => ({
+        id: `${wordIds[0]}:user_speaker_assignment:segment`,
+        word_id: wordIds[0],
+        type: "user_speaker_assignment",
+        value: JSON.stringify({
+          human_id: humanId,
+          scope: "segment",
+          word_ids: wordIds,
+          extend_to_adjacent: false,
+        }),
+      }),
+    ),
+  ];
 }
 
 export function isStoppedTranscriptionError(error: unknown) {
@@ -613,13 +735,37 @@ export const useRunBatch = (sessionId: string) => {
         options?.promotion?.scope === "current_capture"
           ? options.promotion.replaceTranscriptId
           : undefined;
+      // "Not found" (null) and "could not be read" (threw twice) are different
+      // facts: replacing the old transcript without its source would drop the
+      // manual speaker assignments, so an unreadable source blocks the
+      // replacement and keeps the old transcript (Fix-Runde B7).
+      let refinedSourceUnreadable = false;
       if (replaceTranscriptId) {
-        try {
-          refinedTranscriptSource =
-            await getTranscriptRecord(replaceTranscriptId);
-        } catch (error) {
-          console.warn("[runBatch] failed to load refined transcript", error);
+        for (let attempt = 0; attempt < 2; attempt += 1) {
+          if (attempt > 0) {
+            await new Promise((resolve) =>
+              setTimeout(resolve, REFINED_SOURCE_RETRY_DELAY_MS),
+            );
+          }
+          try {
+            refinedTranscriptSource =
+              await getTranscriptRecord(replaceTranscriptId);
+            refinedSourceUnreadable = false;
+            break;
+          } catch (error) {
+            refinedSourceUnreadable = true;
+            console.warn(
+              `[runBatch] failed to load refined transcript (attempt ${attempt + 1} of 2)`,
+              error,
+            );
+          }
         }
+      }
+      if (refinedSourceUnreadable) {
+        // Checked BEFORE the (paid) transcription starts. The error takes the
+        // existing failure path: the recording is kept, no summary, nothing
+        // marked as complete, and the recovery marker allows a later retry.
+        throw new Error(UNREADABLE_REFINED_SOURCE_ERROR_MESSAGE);
       }
 
       const createdAt = new Date().toISOString();

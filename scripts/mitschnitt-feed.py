@@ -19,7 +19,9 @@ VERSION_REGEX = re.compile(r"^\d+\.\d+\.\d+$")
 def _lade_pubkey_aus_tauri_conf(script_dir):
     """Lese pubkey aus tauri.conf.json relativ zum Repo-Root (Elternordner von scripts/)."""
     repo_root = os.path.dirname(script_dir)  # Eltern von scripts/
-    conf_path = os.path.join(repo_root, "apps", "desktop", "src-tauri", "tauri.conf.json")
+    conf_path = os.path.join(
+        repo_root, "apps", "desktop", "src-tauri", "tauri.conf.json"
+    )
     if not os.path.isfile(conf_path):
         return None
     try:
@@ -50,7 +52,10 @@ def _extrahiere_key_id_aus_pubkey(pubkey_b64):
             raise ValueError("kein minisign-pubkey-Text")
         raw = base64.b64decode(zeilen[1])
     except (base64.binascii.Error, ValueError, UnicodeDecodeError):
-        print("FEHLER: Pubkey ist kein gueltiger minisign-pubkey (base64 einer Textdatei)", file=sys.stderr)
+        print(
+            "FEHLER: Pubkey ist kein gueltiger minisign-pubkey (base64 einer Textdatei)",
+            file=sys.stderr,
+        )
         sys.exit(1)
     if len(raw) != 42:
         print(
@@ -78,7 +83,9 @@ def _extrahiere_key_id_aus_signatur(sig_b64):
     try:
         sig_text = base64.b64decode(sig_b64).decode("utf-8")
     except (base64.binascii.Error, ValueError, UnicodeDecodeError):
-        print("FEHLER: Signatur ist kein gueltiger Base64-String (Text)", file=sys.stderr)
+        print(
+            "FEHLER: Signatur ist kein gueltiger Base64-String (Text)", file=sys.stderr
+        )
         sys.exit(1)
     lines = sig_text.strip().split("\n")
     if len(lines) < 2:
@@ -89,7 +96,9 @@ def _extrahiere_key_id_aus_signatur(sig_b64):
     try:
         sig_raw = base64.b64decode(sig_line)
     except (base64.binascii.Error, ValueError):
-        print("FEHLER: Signatur-Zeile ist kein gueltiger Base64-String", file=sys.stderr)
+        print(
+            "FEHLER: Signatur-Zeile ist kein gueltiger Base64-String", file=sys.stderr
+        )
         sys.exit(1)
     if len(sig_raw) != 74:
         print(
@@ -189,9 +198,7 @@ def baustein(args):
         sys.exit(1)
 
     asset_name = os.path.basename(args.datei)
-    expected_url_prefix = (
-        f"https://github.com/simeonzickert/mitschnitt/releases/download/v{args.version}/"
-    )
+    expected_url_prefix = f"https://github.com/simeonzickert/mitschnitt/releases/download/v{args.version}/"
     # URL-Prefix validieren
     if not args.url.startswith(expected_url_prefix):
         print(
@@ -283,7 +290,7 @@ def zusammenfuehren(args):
 
     for datei_name in baustein_dateien:
         # Plattform-Key aus Dateinamen extrahieren: plattform-<key>.json
-        key = datei_name[len("plattform-"):-len(".json")]
+        key = datei_name[len("plattform-") : -len(".json")]
         if key not in ERLAUBTE_PLATTFORMEN:
             print(
                 f"FEHLER: Datei '{datei_name}' enthaelt ungueltigen "
@@ -443,23 +450,33 @@ def main():
     bp.add_argument("--datei", required=True, help="Pfad zur Asset-Datei")
     bp.add_argument("--url", required=True, help="Download-URL")
     bp.add_argument("--notes", required=True, help="Release-Notes")
-    bp.add_argument("--pub-date", required=True, help="Veroeffentlichungsdatum (ISO-8601)")
-    bp.add_argument("--testschluessel", action="store_true",
-                    help="Markiere Baustein als mit Testschluessel signiert")
+    bp.add_argument(
+        "--pub-date", required=True, help="Veroeffentlichungsdatum (ISO-8601)"
+    )
+    bp.add_argument(
+        "--testschluessel",
+        action="store_true",
+        help="Markiere Baustein als mit Testschluessel signiert",
+    )
     bp.set_defaults(func=baustein)
 
     # zusammenfuehren
     zp = subparsers.add_parser(
         "zusammenfuehren", help="Fuehre Bausteine zu latest.json zusammen"
     )
-    zp.add_argument("--ausgabe", required=True, help="Ausgabeverzeichnis mit Baustein-Dateien")
+    zp.add_argument(
+        "--ausgabe", required=True, help="Ausgabeverzeichnis mit Baustein-Dateien"
+    )
     zp.add_argument(
         "--erwarte",
         help="Komma-separierte Liste erwarteter Plattform-Keys",
     )
     zp.add_argument("--pubkey", help="Base64-Pubkey (minisign-Format)")
-    zp.add_argument("--erlaube-testschluessel", action="store_true",
-                    help="Erlaube Bausteine mit Testschluessel (nur fuer Probelaeufe)")
+    zp.add_argument(
+        "--erlaube-testschluessel",
+        action="store_true",
+        help="Erlaube Bausteine mit Testschluessel (nur fuer Probelaeufe)",
+    )
     zp.set_defaults(func=zusammenfuehren)
 
     args = parser.parse_args()

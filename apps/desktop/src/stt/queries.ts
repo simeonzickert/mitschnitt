@@ -8,11 +8,16 @@ import { executeTransaction, liveQueryClient, useLiveQuery } from "~/db";
 import { enqueueDatabaseWrite } from "~/db/write-queue";
 import type { SegmentKey } from "~/stt/live-segment";
 import { SESSION_PARTICIPANT_HUMAN_IDS_SQL } from "~/stt/session-participant-sql";
+import {
+  buildRenderTranscriptRequestFromRows,
+  resolveScopedWordHumanIds,
+} from "~/stt/render-transcript";
 import { coalesceLiveTranscriptDeltas } from "~/stt/transcript-persistence-worker";
 import type { SpeakerHintWithId, WordWithId } from "~/stt/types";
 import {
   applyLiveTranscriptDelta,
   createTranscriptAccumulator,
+  findSpeakerAssignmentAnchorWordId,
   parseTranscriptWords,
   parseTranscriptHints,
   updateTranscriptHints,
@@ -476,6 +481,8 @@ export function assignTranscriptSpeaker({
   anchorWordId,
   mode,
   wordIds,
+  extendToAdjacent,
+  assertEditable,
 }: {
   transcriptId: string;
   segmentKey: SegmentKey;
@@ -483,62 +490,212 @@ export function assignTranscriptSpeaker({
   anchorWordId: string;
   mode?: "all" | "segment";
   wordIds?: string[];
+  extendToAdjacent?: boolean;
+  assertEditable?: () => void;
 }): Promise<void> {
-  return mutateTranscript(transcriptId, (store) => {
+  return assignSpeakerInTranscript({
+    transcriptId,
+    segmentKey,
+    humanId,
+    anchorWordId,
+    mode,
+    wordIds,
+    extendToAdjacent,
+    assertEditable,
+  });
+}
+
+export async function assignSessionTranscriptSpeaker({
+  sessionId,
+  transcriptId,
+  segmentKey,
+  humanId,
+  anchorWordId,
+  wordIds,
+  assertEditable,
+}: {
+  sessionId: string;
+  transcriptId: string;
+  segmentKey: SegmentKey;
+  humanId: string;
+  anchorWordId: string;
+  wordIds?: string[];
+  assertEditable?: () => void;
+}): Promise<void> {
+  const transcripts = await liveQueryClient.execute<{ id: string }>(
+    `
+      SELECT id
+      FROM transcripts
+      WHERE session_id = ? AND deleted_at IS NULL
+      ORDER BY started_at_ms, created_at, id
+    `,
+    [sessionId],
+  );
+  // The query above took time: the session may have locked meanwhile.
+  assertEditable?.();
+  if (!transcripts.some((transcript) => transcript.id === transcriptId)) {
+    throw new Error(
+      `Transcript ${transcriptId} is no longer in session ${sessionId}`,
+    );
+  }
+
+  await Promise.all(
+    transcripts
+      .filter(
+        (transcript) =>
+          transcript.id === transcriptId || segmentKey.speaker_human_id,
+      )
+      .map((transcript) =>
+        transcript.id === transcriptId
+          ? assignSpeakerInTranscript({
+              transcriptId,
+              segmentKey,
+              humanId,
+              anchorWordId,
+              wordIds,
+              mode: "all",
+              assertEditable,
+            })
+          : mutateTranscript(
+              transcript.id,
+              (store) => {
+              const input = buildRenderTranscriptRequestFromRows([
+                {
+                  words: parseTranscriptWords(store, transcript.id),
+                  speaker_hints: parseTranscriptHints(store, transcript.id),
+                },
+              ])?.transcripts[0];
+              if (!input) return false;
+              const matchingWordIds = [...resolveScopedWordHumanIds(input)]
+                .filter(
+                  ([, assignedHumanId]) =>
+                    assignedHumanId === segmentKey.speaker_human_id,
+                )
+                .map(([wordId]) => wordId);
+              const anchor = matchingWordIds[0];
+              if (!anchor) return false;
+              upsertSpeakerAssignment(
+                store,
+                transcript.id,
+                segmentKey,
+                humanId,
+                anchor,
+                {
+                  mode: "segment",
+                  wordIds: matchingWordIds,
+                  extendToAdjacent: false,
+                },
+              );
+              },
+              assertEditable,
+            ),
+      ),
+  );
+}
+
+async function assignSpeakerInTranscript({
+  transcriptId,
+  segmentKey,
+  humanId,
+  anchorWordId,
+  mode,
+  wordIds,
+  extendToAdjacent,
+  assertEditable,
+}: {
+  transcriptId: string;
+  segmentKey: SegmentKey;
+  humanId: string;
+  anchorWordId?: string;
+  mode?: "all" | "segment";
+  wordIds?: string[];
+  extendToAdjacent?: boolean;
+  assertEditable?: () => void;
+}): Promise<void> {
+  let assigned = false;
+  await mutateTranscript(transcriptId, (store) => {
+    const resolvedAnchorWordId =
+      anchorWordId ??
+      findSpeakerAssignmentAnchorWordId(
+        parseTranscriptWords(store, transcriptId),
+        parseTranscriptHints(store, transcriptId),
+        segmentKey,
+      );
+    if (!resolvedAnchorWordId) {
+      return false;
+    }
+
     upsertSpeakerAssignment(
       store,
       transcriptId,
       segmentKey,
       humanId,
-      anchorWordId,
-      { mode, wordIds },
+      resolvedAnchorWordId,
+      { mode, wordIds, extendToAdjacent },
     );
-  }).then(() => {
-    if ((mode ?? "all") !== "all") {
-      return;
-    }
-    const channel =
-      segmentKey.channel === "DirectMic"
-        ? 0
-        : segmentKey.channel === "RemoteParty"
-          ? 1
-          : 2;
-    transcriptionCommands
-      .promoteVoiceprintCandidates(
-        transcriptId,
-        channel,
-        typeof segmentKey.speaker_index === "number"
-          ? segmentKey.speaker_index
-          : null,
-        humanId,
-      )
-      .then((result) => {
-        if (result.status === "error") {
-          console.error("[voiceprint] promotion failed", result.error);
-        }
-      })
-      .catch((error) => {
-        console.error("[voiceprint] promotion failed", error);
-      });
-  });
+    assigned = true;
+    return true;
+  }, assertEditable);
+
+  if (
+    !assigned ||
+    (mode ?? "all") !== "all" ||
+    !Number.isInteger(segmentKey.speaker_index)
+  ) {
+    return;
+  }
+
+  const channel =
+    segmentKey.channel === "DirectMic"
+      ? 0
+      : segmentKey.channel === "RemoteParty"
+        ? 1
+        : 2;
+  void transcriptionCommands
+    .promoteVoiceprintCandidates(
+      transcriptId,
+      channel,
+      typeof segmentKey.speaker_index === "number"
+        ? segmentKey.speaker_index
+        : null,
+      humanId,
+    )
+    .then((result) => {
+      if (result.status === "error") {
+        console.error("[voiceprint] promotion failed", result.error);
+      }
+    })
+    .catch((error) => {
+      console.error("[voiceprint] promotion failed", error);
+    });
 }
 
-export function updateTranscriptSegmentText({
+/**
+ * Rewrites the text of the given words. Resolves `false` when none of the
+ * word ids exists any more (the transcript was replaced under the caller),
+ * so the caller can tell "saved" from "silently nothing happened".
+ */
+export async function updateTranscriptSegmentText({
   transcriptId,
   wordIds,
   text,
+  assertEditable,
 }: {
   transcriptId: string;
   wordIds: string[];
   text: string;
-}): Promise<void> {
-  return mutateTranscript(transcriptId, (store) => {
+  assertEditable?: () => void;
+}): Promise<boolean> {
+  let matched = false;
+  await mutateTranscript(transcriptId, (store) => {
+    matched = false;
     const selectedWordIds = new Set(wordIds);
     const words = parseTranscriptWords(store, transcriptId);
     const selectedWords = words.filter((word) => selectedWordIds.has(word.id));
     if (selectedWords.length === 0) {
       return;
     }
+    matched = true;
 
     const tokens = text.match(/\S+/g) ?? [];
     const textByWordId = new Map<string, string>();
@@ -560,7 +717,164 @@ export function updateTranscriptSegmentText({
           : { ...word, text: nextText };
       }),
     );
+  }, assertEditable);
+  return matched;
+}
+
+/**
+ * Blanks the given words (block delete) and resolves the texts they had, so
+ * the delete can be undone with `restoreTranscriptWordTexts`.
+ */
+export async function clearTranscriptWordTexts({
+  transcriptId,
+  wordIds,
+}: {
+  transcriptId: string;
+  wordIds: string[];
+}): Promise<Record<string, string>> {
+  let previous: Record<string, string> = {};
+  await mutateTranscript(transcriptId, (store) => {
+    previous = {};
+    const selected = new Set(wordIds);
+    const words = parseTranscriptWords(store, transcriptId);
+    if (!words.some((word) => selected.has(word.id))) {
+      return;
+    }
+    for (const word of words) {
+      if (selected.has(word.id)) previous[word.id] = word.text ?? "";
+    }
+    updateTranscriptWords(
+      store,
+      transcriptId,
+      words.map((word) =>
+        selected.has(word.id) ? { ...word, text: "" } : word,
+      ),
+    );
   });
+  return previous;
+}
+
+/**
+ * Writes back the word texts captured by `clearTranscriptWordTexts`, but only
+ * into words that are STILL blank: a word the user has typed into since the
+ * delete is not overwritten. Resolves how many words were restored.
+ */
+export async function restoreTranscriptWordTexts({
+  transcriptId,
+  texts,
+}: {
+  transcriptId: string;
+  texts: Record<string, string>;
+}): Promise<number> {
+  let restored = 0;
+  await mutateTranscript(transcriptId, (store) => {
+    restored = 0;
+    const words = parseTranscriptWords(store, transcriptId);
+    const next = words.map((word) => {
+      const previous = texts[word.id];
+      if (previous === undefined || (word.text ?? "") !== "") return word;
+      restored += 1;
+      return { ...word, text: previous };
+    });
+    if (restored === 0) {
+      return;
+    }
+    updateTranscriptWords(store, transcriptId, next);
+  });
+  return restored;
+}
+
+export async function splitTranscriptSpeaker({
+  transcriptId,
+  segmentKey,
+  wordIds,
+  text,
+  offset,
+  humanId,
+  assertEditable,
+}: {
+  transcriptId: string;
+  segmentKey: SegmentKey;
+  wordIds: string[];
+  text: string;
+  offset: number;
+  humanId: string;
+  assertEditable?: () => void;
+}): Promise<boolean> {
+  const splitWordId = crypto.randomUUID();
+  let matched = false;
+  await mutateTranscript(transcriptId, (store) => {
+    matched = false;
+    const words = parseTranscriptWords(store, transcriptId);
+    const selectedIds = new Set(wordIds);
+    const selected = words.filter((word) => selectedIds.has(word.id));
+    const tokens = [...text.matchAll(/\S+/g)];
+    if (!selected.length || !text.slice(offset).trim()) return false;
+
+    const lastToken = tokens[tokens.length - 1];
+    const textEnd = lastToken
+      ? lastToken.index + lastToken[0].length
+      : text.length;
+    const replacements = new Map<string, WordWithId[]>();
+    const followingIds: string[] = [];
+    for (const [index, word] of selected.entries()) {
+      const start = tokens[index]?.index ?? text.length;
+      const end =
+        index === selected.length - 1
+          ? textEnd
+          : start + (tokens[index]?.[0].length ?? 0);
+      const nextText = text.slice(start, end).trim();
+      if (offset > start && offset < end) {
+        const before = text.slice(start, offset).trim();
+        const after = text.slice(offset, end).trim();
+        if (before && after) {
+          const boundary =
+            word.start_ms !== undefined && word.end_ms !== undefined
+              ? word.start_ms +
+                (word.end_ms - word.start_ms) *
+                  ((offset - start) / (end - start))
+              : undefined;
+          replacements.set(word.id, [
+            {
+              ...word,
+              text: before,
+              ...(boundary === undefined ? {} : { end_ms: boundary }),
+            },
+            {
+              ...word,
+              id: splitWordId,
+              text: after,
+              ...(boundary === undefined ? {} : { start_ms: boundary }),
+            },
+          ]);
+          followingIds.push(splitWordId);
+          continue;
+        }
+      }
+      replacements.set(word.id, [{ ...word, text: nextText }]);
+      if (nextText && start >= offset) followingIds.push(word.id);
+    }
+    if (!followingIds.length) return false;
+    updateTranscriptWords(
+      store,
+      transcriptId,
+      words.flatMap((word) => replacements.get(word.id) ?? [word]),
+    );
+    upsertSpeakerAssignment(
+      store,
+      transcriptId,
+      segmentKey,
+      humanId,
+      followingIds[0],
+      {
+        mode: "segment",
+        wordIds: followingIds,
+        extendToAdjacent: false,
+      },
+    );
+    matched = true;
+  }, assertEditable);
+  return matched;
 }
 
 export function softDeleteTranscript(transcriptId: string): Promise<void> {
@@ -654,10 +968,14 @@ function parseJsonArray<T>(value: string, rowId: string, field: string): T[] {
 
 async function mutateTranscript(
   transcriptId: string,
-  mutation?: (store: MemoryTranscriptStore) => void,
+  mutation?: (store: MemoryTranscriptStore) => boolean | void,
+  // User-triggered writes pass the guard's check: it runs again right before
+  // each attempt reads and writes, after any time spent in the write queue.
+  assertEditable?: () => void,
 ): Promise<void> {
   return enqueueDatabaseWrite(`transcript:${transcriptId}`, async () => {
     for (let attempt = 0; attempt < 5; attempt += 1) {
+      assertEditable?.();
       const rows = await liveQueryClient.execute<TranscriptMutationSqlRow>(
         `
           SELECT
@@ -703,14 +1021,21 @@ async function mutateTranscript(
         transcriptId,
         current.pending_deltas_json,
       );
+      let shouldPersist = true;
       const next = mutation
         ? mutateTranscriptSnapshot(
             materialized.wordsJson,
             materialized.hintsJson,
             transcriptId,
-            mutation,
+            (store) => {
+              shouldPersist = mutation(store) !== false;
+            },
           )
         : materialized;
+      if (!shouldPersist) return;
+      // The SELECT above may have waited: check the lock once more, right
+      // before the write.
+      assertEditable?.();
       const now = new Date().toISOString();
       const [updated = 0] = await executeTransaction([
         {

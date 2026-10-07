@@ -122,6 +122,10 @@ msgstr ""
 msgid "{absDays} days ago"
 msgstr ""
 
+#: src/session/components/note-input/transcript/renderer/index.tsx
+msgid "{count, plural, one {# block deleted} other {# blocks deleted}}"
+msgstr ""
+
 #: src/chat/components/message/tool/generic.tsx
 msgid "{displayName} failed"
 msgstr ""
@@ -149,6 +153,10 @@ msgstr ""
 
 #: src/composer/index.tsx
 msgid "{primaryModifier} ↩ to send"
+msgstr ""
+
+#: src/session/components/note-input/transcript/renderer/index.tsx
+msgid "{restored} of {expected} words restored"
 msgstr ""
 
 #: src/session/components/note-input/audio-drop-target.tsx
@@ -546,11 +554,6 @@ msgstr ""
 msgid "Authenticating…"
 msgstr ""
 
-#: src/session/components/note-input/template-picker.tsx
-#: src/templates/template-sidebar.tsx
-msgid "Auto"
-msgstr ""
-
 #: src/templates/auto-form.tsx
 msgid "Auto summary format"
 msgstr ""
@@ -738,6 +741,10 @@ msgstr ""
 
 #: src/session/components/note-input/transcript/renderer/selection-menu.tsx
 msgid "Change speaker"
+msgstr ""
+
+#: src/session/components/note-input/transcript/renderer/selection-menu.tsx
+msgid "Change speaker from here"
 msgstr ""
 
 #: src/chat/components/toolbar-controls.tsx
@@ -1166,6 +1173,11 @@ msgstr ""
 msgid "Copy this signing secret now — it is only shown once."
 msgstr ""
 
+#: src/session/components/note-input/transcript/renderer/index.tsx
+#: src/session/components/note-input/transcript/renderer/speaker-assign.tsx
+msgid "Could not assign the speaker"
+msgstr ""
+
 #. placeholder {0}: error.message
 #: src/settings/developers/cli.tsx
 msgid "Could not check the CLI: {0}"
@@ -1216,6 +1228,10 @@ msgstr ""
 msgid "Could not open this meeting's folder: {0}"
 msgstr ""
 
+#: src/session/components/note-input/transcript/renderer/speaker-assign.tsx
+msgid "Could not prepare the speaker"
+msgstr ""
+
 #: src/shared/useNewNote.ts
 msgid "Could not prepare this upload. Please try again."
 msgstr ""
@@ -1244,6 +1260,10 @@ msgstr ""
 msgid "Could not transcribe voice input"
 msgstr ""
 
+#: src/session/components/note-input/transcript/renderer/index.tsx
+msgid "Could not undo the deletion"
+msgstr ""
+
 #: src/settings/automations/index.tsx
 #: src/settings/automations/workflow-builder.tsx
 msgid "Could not update the automation"
@@ -1263,6 +1283,10 @@ msgstr ""
 
 #: src/onboarding/final.tsx
 msgid "Couldn't open Mitschnitt. Please try again."
+msgstr ""
+
+#: src/calendar/components/apple/system-accounts-hint.tsx
+msgid "Couldn’t open System Settings"
 msgstr ""
 
 #: src/session/components/folder-picker.tsx
@@ -1319,10 +1343,6 @@ msgstr ""
 msgid "Current default"
 msgstr ""
 
-#: src/templates/template-sidebar.tsx
-msgid "Customized"
-msgstr ""
-
 #: src/main/windows-title-bar.tsx
 msgid "Cut"
 msgstr ""
@@ -1359,6 +1379,7 @@ msgid "Default"
 msgstr ""
 
 #: src/contacts/contact-page-header.tsx
+#: src/session/components/note-input/transcript/renderer/selection-menu.tsx
 #: src/session/components/outer-header/overflow/delete.tsx
 #: src/session/hooks/useConfirmedDeleteSession.tsx
 #: src/sidebar/automations.tsx
@@ -1609,6 +1630,7 @@ msgstr ""
 
 #: src/main/windows-title-bar.tsx
 #: src/session/components/note-input/transcript/index.tsx
+#: src/session/components/note-input/transcript/renderer/selection-menu.tsx
 #: src/sidebar/automations.tsx
 msgid "Edit"
 msgstr ""
@@ -1944,6 +1966,10 @@ msgstr ""
 
 #: src/chat/components/body/index.tsx
 msgid "Go to recent"
+msgstr ""
+
+#: src/calendar/components/apple/system-accounts-hint.tsx
+msgid "Google or Outlook calendar? Add the account in System Settings under Internet Accounts and turn on \"Calendars\". It will then show up here."
 msgstr ""
 
 #: src/settings/ai/stt/select.tsx
@@ -2610,11 +2636,14 @@ msgstr ""
 msgid "Monday"
 msgstr ""
 
-#: src/settings/ai/llm/configure.tsx
 #: src/settings/ai/llm/select.tsx
-#: src/settings/ai/stt/configure.tsx
+#: src/settings/ai/shared/more-group.tsx
 #: src/settings/ai/stt/select.tsx
 msgid "More"
+msgstr ""
+
+#: src/settings/ai/shared/more-group.tsx
+msgid "More ({hiddenCount})"
 msgstr ""
 
 #: src/session/components/floating/options-menu.tsx
@@ -2932,6 +2961,10 @@ msgstr ""
 msgid "Nothing was applied yet."
 msgstr ""
 
+#: src/session/components/note-input/transcript/renderer/index.tsx
+msgid "Nothing was deleted: the blocks no longer exist"
+msgstr ""
+
 #: src/settings-transfer/index.tsx
 msgid "Nothing was written: the file would have carried an access key unprotected."
 msgstr ""
@@ -3027,6 +3060,10 @@ msgstr ""
 msgid "Open Intelligence settings"
 msgstr ""
 
+#: src/calendar/components/apple/system-accounts-hint.tsx
+msgid "Open Internet Accounts"
+msgstr ""
+
 #: src/composer/index.tsx
 #: src/onboarding/final.tsx
 #: src/services/enhancer/summary-notification.ts
@@ -3049,6 +3086,10 @@ msgstr ""
 
 #: src/calendar/components/apple/permission.tsx
 msgid "Open Settings"
+msgstr ""
+
+#: src/calendar/components/apple/system-accounts-hint.tsx
+msgid "Open System Settings → Internet Accounts yourself."
 msgstr ""
 
 #: src/settings/general/meeting-settings.tsx
@@ -3922,6 +3963,10 @@ msgstr ""
 msgid "Software Engineer"
 msgstr ""
 
+#: src/session/components/note-input/transcript/renderer/index.tsx
+msgid "Some blocks could not be deleted"
+msgstr ""
+
 #: src/imports/provenance-view.tsx
 msgid "Some of the word times in this transcript are estimated, not measured. Clicking a word there will not land on it exactly in the audio."
 msgstr ""
@@ -3930,6 +3975,7 @@ msgstr ""
 msgid "Something about this folder is in the way and this version does not have a name for it yet ({key})."
 msgstr ""
 
+#: src/session/components/note-input/transcript/renderer/selection-menu.tsx
 #: src/shared/control.tsx
 msgid "Something went wrong"
 msgstr ""
@@ -4256,6 +4302,14 @@ msgstr ""
 msgid "The app builds on open source work by many other people. The full list is generated from the actual dependencies, so it cannot fall out of date. The complete terms, including the open points, are in ATTRIBUTIONS.md next to the app."
 msgstr ""
 
+#: src/session/components/note-input/transcript/renderer/segment.tsx
+msgid "The block could not be split"
+msgstr ""
+
+#: src/session/components/note-input/transcript/renderer/index.tsx
+msgid "The blocks could not be merged"
+msgstr ""
+
 #: src/settings/dictionary/index.tsx
 msgid "The change could not be saved, so it did not take effect. Please try again."
 msgstr ""
@@ -4329,6 +4383,10 @@ msgstr ""
 
 #: src/settings-transfer/index.tsx
 msgid "The setup has been applied."
+msgstr ""
+
+#: src/session/transcript-editable.ts
+msgid "The transcript is being refined right now. Editing is possible again in a moment."
 msgstr ""
 
 #: src/store/zustand/listener/batch.ts
@@ -4630,6 +4688,7 @@ msgid "Unavailable"
 msgstr ""
 
 #: src/main/windows-title-bar.tsx
+#: src/session/components/note-input/transcript/renderer/index.tsx
 #: src/sidebar/toast/undo-delete-toast.tsx
 msgid "Undo"
 msgstr ""
@@ -4940,6 +4999,10 @@ msgstr ""
 
 #: src/services/enhancer/summary-notification.ts
 msgid "Your summary is ready."
+msgstr ""
+
+#: src/session/components/note-input/transcript/renderer/segment.tsx
+msgid "Your text change could not be saved"
 msgstr ""
 
 #: src/store/zustand/listener/general-batch.ts

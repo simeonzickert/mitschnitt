@@ -810,6 +810,35 @@ describe("useStartListening", () => {
     );
   });
 
+  test("an unreadable refinement source takes the failure path: recording kept, nothing completed, no summary, marker kept (Fix-Runde B4)", async () => {
+    runBatchMock.mockRejectedValueOnce(
+      new Error("The live transcript cannot be read right now"),
+    );
+    const { result } = renderHook(() => useStartListening("session-1"));
+
+    await act(async () => {
+      await result.current();
+    });
+    const onStopped = startMock.mock.calls[0]?.[1]?.onStopped;
+    await act(async () => {
+      await onStopped?.("session-1", {
+        durationSeconds: 42,
+        audioPath: "/tmp/session.wav",
+        requestedLiveTranscription: false,
+        liveTranscriptionActive: false,
+        needsBatchRepair: false,
+      });
+    });
+
+    expect(deleteProcessedAudioForRetentionMock).not.toHaveBeenCalled();
+    expect(markSessionAudioTranscriptionCompleteMock).not.toHaveBeenCalled();
+    expect(clearCaptureLifecycleMarkerMock).not.toHaveBeenCalled();
+    expect(queueAutoEnhanceMock).not.toHaveBeenCalled();
+    expect(queueAutoEnhanceIfSummaryEmptyMock).not.toHaveBeenCalled();
+    // The marker stays, so a later recovery run can try again.
+    expect(requestCaptureRecoveryMock).toHaveBeenCalledWith("session-1");
+  });
+
   test("refines complete multi-speaker Pro transcripts after stop", async () => {
     useSTTConnectionMock.mockReturnValue({
       conn: {
