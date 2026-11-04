@@ -55,6 +55,8 @@ On first launch Mitschnitt downloads its transcription model (about 660 MB). The
 - **A vocabulary that learns.** Teach it the names and terms it keeps mishearing, and it corrects them in every transcript.
 - **Resume after an accidental stop.** Hit stop too early? One click keeps recording into the same meeting.
 - **Search inside transcripts,** with the jump landing on the word, not somewhere near it.
+- **Recognizes voices.** Name a speaker once, and later meetings put that name on them.
+- **Summaries that do the follow-up.** They name who said or took on what wherever the meeting shows it, turn "next week" into the actual date, and list what you should double-check.
 - **Summaries on your terms.** Use Apple Intelligence (macOS 26+), a local model via Ollama or LM Studio, or your own API key for OpenAI, Anthropic or Google. You decide if and where text goes.
 - **Plain files, always.** Every meeting also gets a readable folder with Markdown and audio. Your data never depends on the app.
 - **Works with your AI tools.** A local `mitschnitt` CLI and MCP server let Claude, Codex and other agents read your meetings. Agents can only propose edits; you approve them in the app.
@@ -69,7 +71,7 @@ What leaves your Mac, and only then:
 | --- | --- | --- |
 | You download a transcription model | The model file comes in | Hugging Face |
 | The app checks for updates (at launch, then about every 30 minutes) | A version check, and the update itself when there is one | GitHub releases of this repo |
-| You add your own AI provider for summaries | The transcript text you summarize | The provider you chose |
+| You add your own AI provider for summaries | The transcript you summarize, plus the meeting's title, date, calendar agenda and the participants' names and companies | The provider you chose |
 
 No audio ever leaves your Mac unless you configure a cloud transcription provider yourself. There are no crash reports and no usage statistics; the code for them has been removed, not just switched off.
 
@@ -85,13 +87,12 @@ Mitschnitt doesn't announce itself in the call. Whether you need consent depends
 Transcription is local today. A built-in local language model for summaries is on the roadmap. Until then, Apple Intelligence (macOS 26+) or a local Ollama or LM Studio server keep everything on your Mac.
 
 **Windows?**
-Planned. The groundwork is there, local transcription on Windows is not yet.
+Yes, as a preview: every release includes a Windows installer. Local transcription is not available on Windows yet, so there you transcribe with a cloud provider you set up yourself.
 
 ## Roadmap
 
 - Built-in local model for summaries, no API key needed
-- Windows support
-- Naming speakers once and recognizing them in later meetings
+- Local transcription on Windows
 
 ## Build from source
 
